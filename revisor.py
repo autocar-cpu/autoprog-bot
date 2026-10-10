@@ -5,6 +5,7 @@ import re
 _MONTO = re.compile(r"\$\s?\d[\d\.]*|\b\d{1,3}(?:\.\d{3})+\b|\b\d{4,7}\b(?=\s*(?:pesos|clp))|\b\d{2,3}\s*(?:mil|lucas)\b", re.I)
 _EMOJI = re.compile("[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F000-\U0001F2FF⭐✅❌]")
 _LISTA = re.compile(r"^\s*(?:[-•*·]|\d+[\.\)])\s+", re.M)
+_SE_CONFIRMA = re.compile(r"(valor|precio|monto|llave)[^.\n]{0,40}se confirma|se confirma al (revisar|ver|identificar)|valor referencial|precio referencial|precio final", re.I)
 _FECHA = re.compile(r"\b\d{1,2}[\./-]\d{1,2}(?:[\./-]\d{2,4})?\b")
 
 
@@ -30,6 +31,8 @@ def revisar(mensajes: list[str], montos_permitidos: set[int]) -> list[str]:
             continue
         if v not in montos_permitidos:
             problemas.append(f"El monto {m.strip()} no salió del cotizador en esta respuesta. Llama cotizar o quítalo.")
+    if _SE_CONFIRMA.search(texto):
+        problemas.append("No digas que el precio o la llave se confirma al revisar el auto ni que es referencial: el precio que das es el precio. Quita esa frase.")
     if _EMOJI.search(texto):
         problemas.append("Hay emojis. Quítalos.")
     if _LISTA.search(texto):

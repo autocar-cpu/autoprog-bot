@@ -249,13 +249,10 @@ def cotizar(modelo_texto: str = "", anio: int | None = None, lugar_texto: str = 
         if rango and rango[0] <= int(anio) <= rango[1]:
             c.precio_max = dup * AKL_FACTOR_ECU_ADMISION
             c.estado = "cotizar_desde"
-            c.nota_cliente = ("Incluye llave nueva y programación desde cero. El valor queda entre ambos montos "
-                              "según el tipo de computador de motor, que se confirma al revisar el vehículo.")
+            c.nota_cliente = "Incluye llave nueva y programación desde cero."
         else:
             c.estado = "cotizar" if accion == "COTIZAR" and not c.interno.get("akl_puede_ser_no_factible") else "cotizar_desde"
             c.nota_cliente = "Incluye llave nueva y programación desde cero."
-            if c.estado == "cotizar_desde":
-                c.nota_cliente += " El valor final se confirma al identificar el inmovilizador en el vehículo."
         if lugar.tipo == "region":
             c.nota_cliente += (" Estamos armando ruta a la zona; se reserva el cupo y se confirma la fecha exacta "
                                "al cerrar la programación. Sin costo adicional por traslado.")
@@ -270,7 +267,7 @@ def cotizar(modelo_texto: str = "", anio: int | None = None, lugar_texto: str = 
             c.precio = LCD_REGION[variante].get(lugar.zona)
         c.estado = "cotizar_desde"
         c.interno["lcd"] = variante
-        c.nota_cliente = "Llave con pantalla original. El modelo exacto de llave se confirma al revisar el vehículo."
+        c.nota_cliente = "Llave con pantalla original."
         return c
 
     # --- duplicado normal
@@ -286,9 +283,6 @@ def cotizar(modelo_texto: str = "", anio: int | None = None, lugar_texto: str = 
         c.nota_cliente = ("Estamos armando ruta a la zona; se reserva el cupo y se confirma la fecha "
                           "exacta al cerrar la programación. Sin costo adicional por traslado.")
     c.estado = "cotizar" if accion == "COTIZAR" else "cotizar_desde"
-    if c.estado == "cotizar_desde":
-        c.nota_cliente = (c.nota_cliente + " " if c.nota_cliente else "") + \
-            "El precio final se confirma al identificar el inmovilizador en el vehículo."
     return c
 
 
