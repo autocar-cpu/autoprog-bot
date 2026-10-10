@@ -335,4 +335,6 @@ async def preparar_imagenes(k: str):
     """Sube (una vez) las láminas del catálogo a GHL y muestra sus URLs."""
     if not _clave_ok(k):
         raise HTTPException(401)
-    return {n: await ghl.url_imagen(a) for n, a in config.IMAGENES.items()}
+    out = {n: await ghl.url_imagen(a) for n, a in config.IMAGENES.items()}
+    out["error"] = ghl.ultimo_error_media
+    return out

@@ -122,11 +122,13 @@ async def agendar(contact_id: str, inicio_iso: str, direccion: str, titulo: str,
 
 # ------------------------------------------------------------ imágenes del catálogo
 _urls_media: dict[str, str] = {}
+ultimo_error_media = ""
 
 
 async def url_imagen(nombre_archivo: str) -> str | None:
     """URL alojada en GHL de una imagen del catálogo (WhatsApp entrega bien las de GHL).
     Busca si ya está subida; si no, la sube una vez desde la carpeta static."""
+    global ultimo_error_media
     from pathlib import Path
     if nombre_archivo in _urls_media:
         return _urls_media[nombre_archivo]
@@ -138,7 +140,8 @@ async def url_imagen(nombre_archivo: str) -> str | None:
             if f.get("name") == nombre and f.get("url"):
                 _urls_media[nombre_archivo] = f["url"]
                 return f["url"]
-    except Exception:
+    except Exception as e:
+        ultimo_error_media = f"listar: {e}"[:300]
         log.warning("no se pudo listar medios")
     ruta = Path(__file__).parent / "static" / nombre_archivo
     h = {"Authorization": f"Bearer {config.GHL_TOKEN}", "Version": "2021-07-28", "Accept": "application/json"}
@@ -146,6 +149,7 @@ async def url_imagen(nombre_archivo: str) -> str | None:
         r = await c.post(BASE + "/medias/upload-file", headers=h,
                          files={"file": (nombre, ruta.read_bytes(), "image/jpeg")}, data={"name": nombre})
     if r.status_code >= 400:
+        ultimo_error_media = f"subir {r.status_code}: {r.text[:300]}"
         log.error("subida de imagen %s -> %s %s", nombre, r.status_code, r.text[:300])
         return None
     url = r.json().get("url")
