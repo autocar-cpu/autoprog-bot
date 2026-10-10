@@ -112,7 +112,8 @@ def _historial(msgs: list[dict]) -> list[dict]:
             f = ""
         out.append({"id": m.get("id"), "rol": "cliente" if m.get("direction") == "inbound" else "jesus",
                     "texto": m.get("body", ""), "fecha": f, "imagenes": imgs, "audio": audio,
-                    "dateAdded": m.get("dateAdded", "")})
+                    "dateAdded": m.get("dateAdded", ""),
+                    "api": bool((m.get("meta") or {}).get("marketplace"))})
     return out
 
 
@@ -143,7 +144,7 @@ async def atender(contact_id: str):
     limite = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=config.SILENCIO_SI_HUMANO_HORAS)
     for m in hist:
         if m["rol"] == "jesus" and m["id"] not in _enviados_bot and m["dateAdded"] \
-                and not _es_bot_viejo(m.get("texto", "")):
+                and not m.get("api") and not _es_bot_viejo(m.get("texto", "")):
             if dt.datetime.fromisoformat(m["dateAdded"].replace("Z", "+00:00")) > limite:
                 _ev(paso="omitido", contacto=contact_id, motivo="Jesús atendiendo", texto=m["texto"][:80])
                 return
