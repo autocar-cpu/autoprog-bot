@@ -1,0 +1,120 @@
+"""Cliente mínimo de la API v2 de GoHighLevel (LeadConnector)."""
+from __future__ import annotations
+
+import datetime as dt
+import logging
+
+import httpx
+
+import config
+
+BASE = "https://services.leadconnectorhq.com"
+log = logging.getLogger("ghl")
+
+
+def _h(version: str = "2021-07-28") -> dict:
+    return {"Authorization": f"Bearer {config.GHL_TOKEN}", "Version": version,
+            "Accept": "application/json", "Content-Type": "application/json"}
+
+
+async def _req(metodo: str, ruta: str, version: str = "2021-07-28", **kw) -> dict:
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.request(metodo, BASE + ruta, headers=_h(version), **kw)
+    if r.status_code >= 400:
+        log.error("GHL %s %s -> %s %s", metodo, ruta, r.status_code, r.text[:400])
+        r.raise_for_status()
+    return r.json() if r.content else {}
+
+
+# ------------------------------------------------------------ conversaciones
+async def mensajes(conversation_id: str, limite: int = 40) -> list[dict]:
+    d = await _req("GET", f"/conversations/{conversation_id}/messages", "2021-04-15", params={"limit": limite})
+    return d.get("messages", {}).get("messages", [])
+
+
+async def buscar_conversacion(contact_id: str) -> str | None:
+    d = await _req("GET", "/conversations/search", "2021-04-15",
+                   params={"locationId": config.GHL_LOCATION_ID, "contactId": contact_id})
+    conv = d.get("conversations") or []
+    return conv[0]["id"] if conv else None
+
+
+async def enviar_whatsapp(contact_id: str, texto: str = "", imagen_url: str | None = None) -> str | None:
+    cuerpo = {"type": "WhatsApp", "contactId": contact_id}
+    if texto:
+        cuerpo["message"] = texto
+    if imagen_url:
+        cuerpo["attachments"] = [imagen_url]
+    d = await _req("POST", "/conversations/messages", "2021-04-15", json=cuerpo)
+    return d.get("messageId") or d.get("id")
+
+
+async def nota_interna(contact_id: str, texto: str) -> None:
+    await _req("POST", "/conversations/messages", "2021-04-15",
+               json={"type": "InternalComment", "contactId": contact_id, "message": texto})
+
+
+# ------------------------------------------------------------ contactos
+async def contacto(contact_id: str) -> dict:
+    return (await _req("GET", f"/contacts/{contact_id}")).get("contact", {})
+
+
+async def actualizar_campos(contact_id: str, valores: dict[str, str]) -> None:
+    custom = [{"id": config.CAMPOS[k], "field_value": v} for k, v in valores.items()
+              if k in config.CAMPOS and v not in (None, "")]
+    if custom:
+        await _req("PUT", f"/contacts/{contact_id}", json={"customFields": custom})
+
+
+async def agregar_etiquetas(contact_id: str, etiquetas: list[str]) -> None:
+    await _req("POST", f"/contacts/{contact_id}/tags", json={"tags": etiquetas})
+
+
+async def crear_tarea(contact_id: str, titulo: str, detalle: str, horas: float = 1) -> None:
+    vence = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=horas)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    await _req("POST", f"/contacts/{contact_id}/tasks",
+               json={"title": titulo, "body": detalle, "dueDate": vence, "completed": False,
+                     "assignedTo": config.GHL_USUARIO_JESUS})
+
+
+# ------------------------------------------------------------ oportunidades
+async def oportunidad_abierta(contact_id: str) -> dict | None:
+    d = await _req("GET", "/opportunities/search",
+                   params={"location_id": config.GHL_LOCATION_ID, "contact_id": contact_id, "status": "open"})
+    ops = d.get("opportunities") or []
+    return ops[0] if ops else None
+
+
+async def mover_oportunidad(contact_id: str, nombre_contacto: str, pipeline: str, etapa: str,
+                            valor: int | None = None) -> None:
+    p = config.PIPELINES[pipeline]
+    op = await oportunidad_abierta(contact_id)
+    cuerpo = {"pipelineId": p["id"], "pipelineStageId": p["etapas"][etapa]}
+    if valor:
+        cuerpo["monetaryValue"] = valor
+    if op:
+        await _req("PUT", f"/opportunities/{op['id']}", json=cuerpo)
+    else:
+        cuerpo.update({"locationId": config.GHL_LOCATION_ID, "contactId": contact_id, "status": "open",
+                       "name": f"{nombre_contacto or 'Cliente'} - WhatsApp"})
+        await _req("POST", "/opportunities/", json=cuerpo)
+
+
+# ------------------------------------------------------------ agenda
+async def horarios_libres(dias: int = 4) -> dict[str, list[str]]:
+    ahora = dt.datetime.now(dt.timezone.utc)
+    d = await _req("GET", f"/calendars/{config.GHL_CALENDARIO_ID}/free-slots", params={
+        "startDate": int(ahora.timestamp() * 1000),
+        "endDate": int((ahora + dt.timedelta(days=dias)).timestamp() * 1000),
+        "timezone": config.ZONA_HORARIA})
+    return {k: v.get("slots", []) for k, v in d.items() if isinstance(v, dict) and "slots" in v}
+
+
+async def agendar(contact_id: str, inicio_iso: str, direccion: str, titulo: str, notas: str) -> dict:
+    inicio = dt.datetime.fromisoformat(inicio_iso)
+    fin = inicio + dt.timedelta(hours=3)
+    return await _req("POST", "/calendars/events/appointments", json={
+        "calendarId": config.GHL_CALENDARIO_ID, "locationId": config.GHL_LOCATION_ID,
+        "contactId": contact_id, "startTime": inicio.isoformat(), "endTime": fin.isoformat(),
+        "title": titulo, "address": direccion, "appointmentStatus": "confirmed",
+        "assignedUserId": config.GHL_USUARIO_JESUS, "notes": notas, "toNotify": True})

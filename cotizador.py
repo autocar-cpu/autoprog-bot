@@ -84,8 +84,7 @@ ALIAS = {
     "PTOMONTT": "PUERTOMONTT", "PTOVARAS": "PUERTOVARAS", "STGOMAIPU": "MAIPU",
 }
 AMBIGUOS = {"SANPEDRO": ["San Pedro (Melipilla, RM)", "San Pedro de la Paz", "San Pedro de Atacama"]}
-# taller propio en San Miguel: siempre zona 1
-BODEGA = {"BODEGA", "TALLER", "OFICINA", "LOVIAL", "SUBODEGA", "TUTALLER"}
+# Prohibido ofrecer bodega u oficina (regla 17/08/2026): todo servicio es a domicilio.
 
 
 @dataclass
@@ -102,9 +101,6 @@ def resolver_lugar(texto: str) -> Lugar:
     k = _norm(texto)
     if not k:
         return Lugar("desconocido")
-    if k in BODEGA:
-        z = ZONAS["SANMIGUEL"]
-        return Lugar("rm", "Taller Autoprog (San Miguel)", "Zona 1", 0)
     if k in AMBIGUOS:
         return Lugar("ambiguo", opciones=AMBIGUOS[k])
     k = ALIAS.get(k, k)
