@@ -317,3 +317,13 @@ def diag(k: str, n: int = 30):
     if not _clave_ok(k):
         raise HTTPException(401)
     return _eventos[-n:]
+
+
+@app.get("/reintentar")
+async def reintentar(k: str, contacto: str):
+    """Fuerza que el bot atienda ahora a un contacto (para recuperar un mensaje que falló)."""
+    if not _clave_ok(k):
+        raise HTTPException(401)
+    _ev(paso="reintento manual", contacto=contacto)
+    asyncio.create_task(_esperar_y_atender(contacto))
+    return {"ok": True}
