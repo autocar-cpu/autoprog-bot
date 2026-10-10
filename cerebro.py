@@ -87,7 +87,25 @@ class Contexto:
     simulacion: bool = True        # True = no toca GHL (pruebas)
 
 
-def _transcripcion(ctx: Contexto) -> list[dict]:
+async def _imagen_base64(url: str) -> dict | None:
+    """Descarga la foto del cliente y la entrega en base64 (Claude no puede abrir las URLs de GHL)."""
+    import base64
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c:
+            r = await c.get(url)
+        tipo = r.headers.get("content-type", "").split(";")[0].strip()
+        if r.status_code != 200 or tipo not in ("image/jpeg", "image/png", "image/webp", "image/gif") \
+                or len(r.content) > 4_500_000:
+            return None
+        return {"type": "image", "source": {"type": "base64", "media_type": tipo,
+                                            "data": base64.b64encode(r.content).decode()}}
+    except Exception:
+        log.warning("no se pudo descargar la imagen %s", url[:80])
+        return None
+
+
+async def _transcripcion(ctx: Contexto) -> list[dict]:
     ahora = dt.datetime.now(ZoneInfo(config.ZONA_HORARIA))
     lineas = [f"Fecha y hora actual en Chile: {ahora:%A %d-%m-%Y %H:%M}.",
               f"Nombre del contacto en WhatsApp: {ctx.nombre or '(sin nombre)'}", "", "Conversación (más antigua arriba):"]
@@ -105,7 +123,9 @@ def _transcripcion(ctx: Contexto) -> list[dict]:
     lineas += ["", "Responde a lo último que escribió el cliente."]
     contenido = [{"type": "text", "text": "\n".join(lineas)}]
     for url in imagenes[-3:]:
-        contenido.append({"type": "image", "source": {"type": "url", "url": url}})
+        bloque = await _imagen_base64(url)
+        if bloque:
+            contenido.append(bloque)
     return contenido
 
 
@@ -155,7 +175,7 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
 async def pensar(ctx: Contexto) -> Resultado:
     res = Resultado()
     montos: set[int] = set()
-    mensajes = [{"role": "user", "content": _transcripcion(ctx)}]
+    mensajes = [{"role": "user", "content": await _transcripcion(ctx)}]
     sistema = [{"type": "text", "text": SISTEMA, "cache_control": {"type": "ephemeral"}}]
     modelo = config.MODELO
     reintentos_revisor = 0
