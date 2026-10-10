@@ -103,6 +103,12 @@ def _historial(msgs: list[dict]) -> list[dict]:
     return out
 
 
+def _es_bot_viejo(texto: str) -> bool:
+    """Mensajes del bot anterior de GHL (firmaba así); no cuentan como atención manual de Jesús."""
+    t = texto or ""
+    return "AUTOPROG SPA" in t and ("Ing. Jesús Perdomo" in t or "Jesús David" in t)
+
+
 async def atender(contact_id: str):
     contacto = await ghl.contacto(contact_id)
     etiquetas = [t.lower() for t in contacto.get("tags", [])]
@@ -120,7 +126,8 @@ async def atender(contact_id: str):
     # ¿Jesús escribió a mano hace poco? Entonces no se mete.
     limite = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=config.SILENCIO_SI_HUMANO_HORAS)
     for m in hist:
-        if m["rol"] == "jesus" and m["id"] not in _enviados_bot and m["dateAdded"]:
+        if m["rol"] == "jesus" and m["id"] not in _enviados_bot and m["dateAdded"] \
+                and not _es_bot_viejo(m.get("texto", "")):
             if dt.datetime.fromisoformat(m["dateAdded"].replace("Z", "+00:00")) > limite:
                 log.info("Jesús está atendiendo a %s; el bot no responde", contact_id)
                 return
