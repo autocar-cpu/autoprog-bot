@@ -15,6 +15,7 @@ import config
 import ghl
 from cotizador import cotizar
 from prompt import SISTEMA
+import regiones
 from revisor import revisar
 
 log = logging.getLogger("cerebro")
@@ -55,6 +56,11 @@ HERRAMIENTAS = [
      "input_schema": {"type": "object", "properties": {
          "marca": {"type": "string"}, "modelo": {"type": "string"}, "anio": {"type": "integer"},
          "comuna": {"type": "string"}, "llave_actual": {"type": "string"}, "llave_deseada": {"type": "string"}}}},
+    {"name": "reservar_cupo",
+     "description": "Cliente de regiones que aceptó el precio y quiere que le reserves cupo en la próxima ruta a su zona.",
+     "input_schema": {"type": "object", "properties": {
+         "resumen": {"type": "string", "description": "Muy corto: vehículo, ciudad, servicio, precio aceptado"}},
+         "required": ["resumen"]}},
     {"name": "escalar_a_jesus",
      "description": "Pasa el caso a Jesús (tarea en el CRM) y el bot deja de responder a este contacto. Incluye el mensaje para el cliente.",
      "input_schema": {"type": "object", "properties": {
@@ -80,6 +86,7 @@ class Resultado:
     problemas: list[str] = field(default_factory=list)
     modelo_usado: str = ""
     imagen_sugerida: str = ""
+    region: dict | None = None      # clasificación geográfica (regiones.clasificar)
 
 
 @dataclass
@@ -143,6 +150,9 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
         res.acciones.append({"cotizar": args, "resultado": c.estado, "precio": c.precio, "precio_max": c.precio_max})
         if c.imagen_sugerida:
             res.imagen_sugerida = c.imagen_sugerida
+        geo = regiones.clasificar(args.get("lugar", ""))
+        if geo:
+            res.region = geo
         d = c.dict()
         d.pop("interno", None)   # el sistema IMMO no se le pasa a la IA para que no lo repita al cliente
         return json.dumps(d, ensure_ascii=False)
@@ -165,8 +175,21 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
             await ghl.mover_oportunidad(ctx.contact_id, ctx.nombre, "BMW MINI", "Agendado")
         return "Cita creada."
 
+    if nombre == "reservar_cupo":
+        res.acciones.append({"reservar_cupo": args})
+        if not ctx.simulacion:
+            await ghl.nota_interna(ctx.contact_id, "Cupo reservado en ruta: " + args.get("resumen", ""))
+        return "Cupo reservado. Dile que apenas confirmes la fecha de la ruta le avisas."
+
     if nombre == "guardar_datos":
         res.acciones.append({"guardar_datos": args})
+        geo = regiones.clasificar(args.get("comuna") or "")
+        if geo:
+            res.region = geo
+        if not ctx.simulacion and geo:
+            await ghl.actualizar_campos(ctx.contact_id, geo["campos"])
+            if geo.get("etiqueta"):
+                await ghl.agregar_etiquetas(ctx.contact_id, [geo["etiqueta"]])
         if not ctx.simulacion:
             await ghl.actualizar_campos(ctx.contact_id, {
                 "marca": args.get("marca"), "modelo": args.get("modelo"),

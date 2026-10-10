@@ -53,7 +53,13 @@ CAMPOS = {  # ids de campos personalizados del contacto en GHL
     "comuna_detectada": "6Sgnc7aXDWcIk7sgynhM", "sistema_immo": "xaErSKY47TOQLEnzEreb",
     "llave_actual": "uEzP8DvfAcqsGM4yqTnn", "llave_deseada": "hwBK1H7XxJgYNsO8lmcH",
     "tipo_cliente": "16Ds10Xf6todHUETGqN9",
+    "comuna": "DW1QfUfF9NDkVx7M0OdY", "region": "ygzYlZio5Mqbgqg7Qsl8", "bloque": "P8RlmHTG52vWaCI8MQpj",
+    "zona_operativa": "KCLQamdd9gQylwoppL2a",
 }
+
+# Pipeline de viajes a regiones (se busca por nombre; si no existe, se usa el pipeline de la marca)
+PIPELINE_VIAJES = os.getenv("PIPELINE_VIAJES", "VIAJES REGIONES")
+ETAPAS_VIAJES = ["Interesado", "Cupo reservado", "Ruta confirmada", "Agendado", "Ganado", "Perdido"]
 
 ETIQUETA_BOT_OFF = "bot-off"            # Jesús la pone y el bot no vuelve a hablarle a ese contacto
 ETIQUETA_ESCALADO = "bot-escalado"      # el bot la pone al pasar el caso a Jesús (y se calla)

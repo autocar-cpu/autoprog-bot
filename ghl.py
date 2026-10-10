@@ -100,6 +100,39 @@ async def mover_oportunidad(contact_id: str, nombre_contacto: str, pipeline: str
         await _req("POST", "/opportunities/", json=cuerpo)
 
 
+_pipe_viajes: dict | None = None
+
+
+async def pipeline_viajes() -> dict | None:
+    """{'id', 'etapas': {nombre: id}} del pipeline de viajes a regiones, o None si aún no existe."""
+    global _pipe_viajes
+    if _pipe_viajes:
+        return _pipe_viajes
+    d = await _req("GET", "/opportunities/pipelines", params={"locationId": config.GHL_LOCATION_ID})
+    for p in d.get("pipelines", []):
+        if p.get("name", "").strip().lower() == config.PIPELINE_VIAJES.lower():
+            _pipe_viajes = {"id": p["id"], "etapas": {st["name"].strip().lower(): st["id"] for st in p.get("stages", [])}}
+            return _pipe_viajes
+    return None
+
+
+async def mover_a_viajes(contact_id: str, nombre_contacto: str, etapa: str, valor: int | None = None) -> bool:
+    p = await pipeline_viajes()
+    if not p or etapa.lower() not in p["etapas"]:
+        return False
+    op = await oportunidad_abierta(contact_id)
+    cuerpo = {"pipelineId": p["id"], "pipelineStageId": p["etapas"][etapa.lower()]}
+    if valor:
+        cuerpo["monetaryValue"] = valor
+    if op:
+        await _req("PUT", f"/opportunities/{op['id']}", json=cuerpo)
+    else:
+        cuerpo.update({"locationId": config.GHL_LOCATION_ID, "contactId": contact_id, "status": "open",
+                       "name": f"{nombre_contacto or 'Cliente'} - Región"})
+        await _req("POST", "/opportunities/", json=cuerpo)
+    return True
+
+
 # ------------------------------------------------------------ agenda
 async def horarios_libres(dias: int = 4) -> dict[str, list[str]]:
     ahora = dt.datetime.now(dt.timezone.utc)

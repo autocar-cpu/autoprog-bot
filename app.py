@@ -201,7 +201,18 @@ async def _aplicar(contact_id: str, nombre: str, res: cerebro.Resultado, conv: s
     pipeline = config.pipeline_por_marca(marca)
     precios = [a for a in res.acciones if a.get("precio")]
     agendo = any("agendar" in a for a in res.acciones)
-    if precios and not agendo and not res.escalado:
+    cupo = any("reservar_cupo" in a for a in res.acciones)
+    en_region = bool(res.region and res.region.get("tipo") == "region")
+    if en_region and not res.escalado and (precios or cupo):
+        valor = precios[-1]["precio"] if precios else None
+        try:
+            movido = await ghl.mover_a_viajes(contact_id, nombre, "Cupo reservado" if cupo else "Interesado", valor)
+        except Exception:
+            log.exception("no se pudo mover a viajes")
+            movido = False
+        if not movido and precios:
+            await ghl.mover_oportunidad(contact_id, nombre, pipeline, "Cotizado", valor)
+    elif precios and not agendo and not res.escalado:
         await ghl.mover_oportunidad(contact_id, nombre, pipeline, "Cotizado", precios[-1]["precio"])
     if res.escalado:
         await ghl.agregar_etiquetas(contact_id, [config.ETIQUETA_ESCALADO])
