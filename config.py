@@ -66,6 +66,15 @@ IMAGENES = {  # catálogo que el bot puede mandar
     "selector_mini": "selector-mini.jpg",
 }
 
+# Las mismas láminas ya alojadas en la biblioteca de medios de GHL (WhatsApp las entrega sin problema)
+IMAGENES_GHL = {
+    "catalogo-general.jpg": "https://assets.cdn.filesafe.space/GQTHBIr92oupzd54Ui7X/media/6aa37548b5c228431be10a78.png",
+    "selector-g.jpg": "https://assets.cdn.filesafe.space/GQTHBIr92oupzd54Ui7X/media/6aa37548d1b3cd745ba71e0f.png",
+    "selector-4.jpg": "https://assets.cdn.filesafe.space/GQTHBIr92oupzd54Ui7X/media/6aa3754892ff9faf851753cc.png",
+    "selector-5.jpg": "https://assets.cdn.filesafe.space/GQTHBIr92oupzd54Ui7X/media/6aa37548d1b3cd745ba71e05.png",
+    "selector-mini.jpg": "https://assets.cdn.filesafe.space/GQTHBIr92oupzd54Ui7X/media/6ab934d75597aeb9d7e033f1.png",
+}
+
 
 def pipeline_por_marca(marca: str | None) -> str:
     m = (marca or "").lower()

@@ -130,6 +130,8 @@ async def url_imagen(nombre_archivo: str) -> str | None:
     Busca si ya está subida; si no, la sube una vez desde la carpeta static."""
     global ultimo_error_media
     from pathlib import Path
+    if nombre_archivo in config.IMAGENES_GHL:
+        return config.IMAGENES_GHL[nombre_archivo]
     if nombre_archivo in _urls_media:
         return _urls_media[nombre_archivo]
     nombre = f"bot-autoprog-{nombre_archivo}"
