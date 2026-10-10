@@ -240,6 +240,14 @@ def _evaluar(caso: dict, r: cerebro.Resultado) -> list[str]:
             fallas.append(f"contiene '{p}'")
     if r.problemas:
         fallas.append("revisor: " + "; ".join(r.problemas))
+    estilo = {"usted": r"\busted\b", "estimado": r"estimad[oa]", "gracias por escribir": r"gracias por escribir",
+              "firma": r"AUTOPROG SPA|— ?Ing|Jesús David /", "nombre técnico": r"\b(CAS\d?|FEM|BDC\d?|EWS\d?|BCP|AKL)\b",
+              "con gusto": r"con gusto|quedo atento|quedamos atentos"}
+    for k, pat in estilo.items():
+        if _re.search(pat, texto, _re.I):
+            fallas.append(f"estilo: {k}")
+    if len(r.mensajes) > 3:
+        fallas.append(f"estilo: {len(r.mensajes)} mensajes")
     return fallas
 
 
