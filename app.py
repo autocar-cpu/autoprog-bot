@@ -31,6 +31,13 @@ _pendientes: dict[str, asyncio.Task] = {}     # contact_id -> tarea con espera
 _procesados: set[str] = set()                 # ids de mensajes entrantes ya atendidos
 _enviados_bot: set[str] = set()               # ids de mensajes que mandó el bot
 _bitacora: list[dict] = []                    # últimas respuestas (para revisar)
+_eventos: list[dict] = []                     # diagnóstico: qué pasó con cada aviso
+
+
+def _ev(**kw):
+    kw["t"] = dt.datetime.now(ZoneInfo(config.ZONA_HORARIA)).strftime("%d-%m %H:%M:%S")
+    _eventos.append(kw)
+    del _eventos[:-100]
 
 
 def _clave_ok(k: str | None) -> bool:
@@ -59,6 +66,7 @@ async def webhook(request: Request, k: str | None = None):
         datos = {}
     contact_id = (datos.get("contact_id") or datos.get("contactId")
                   or (datos.get("contact") or {}).get("id"))
+    _ev(paso="webhook", contacto=contact_id, claves=list(datos)[:15])
     if not contact_id:
         log.warning("webhook sin contacto: %s", json.dumps(datos)[:300])
         return {"ok": False, "motivo": "sin contacto"}
@@ -77,7 +85,10 @@ async def _esperar_y_atender(contact_id: str):
         await atender(contact_id)
     except asyncio.CancelledError:
         pass
-    except Exception:
+    except Exception as e:
+        import traceback
+        _ev(paso="error", contacto=contact_id, error=f"{type(e).__name__}: {e}"[:300],
+            donde=traceback.format_exc()[-600:])
         log.exception("error atendiendo %s", contact_id)
     finally:
         if _pendientes.get(contact_id) is asyncio.current_task():
@@ -113,15 +124,18 @@ async def atender(contact_id: str):
     contacto = await ghl.contacto(contact_id)
     etiquetas = [t.lower() for t in contacto.get("tags", [])]
     if config.ETIQUETA_BOT_OFF in etiquetas or config.ETIQUETA_ESCALADO in etiquetas:
-        log.info("contacto %s con bot apagado/escalado", contact_id)
+        _ev(paso="omitido", contacto=contact_id, motivo="etiqueta bot-off/escalado")
         return
     conv = await ghl.buscar_conversacion(contact_id)
     if not conv:
+        _ev(paso="omitido", contacto=contact_id, motivo="sin conversación")
         return
     hist = _historial(await ghl.mensajes(conv))
     if not hist or hist[-1]["rol"] != "cliente":
-        return                               # el último mensaje ya no es del cliente
+        _ev(paso="omitido", contacto=contact_id, motivo="último mensaje no es del cliente", n=len(hist))
+        return
     if hist[-1]["id"] in _procesados:
+        _ev(paso="omitido", contacto=contact_id, motivo="ya procesado")
         return
     # ¿Jesús escribió a mano hace poco? Entonces no se mete.
     limite = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=config.SILENCIO_SI_HUMANO_HORAS)
@@ -129,7 +143,7 @@ async def atender(contact_id: str):
         if m["rol"] == "jesus" and m["id"] not in _enviados_bot and m["dateAdded"] \
                 and not _es_bot_viejo(m.get("texto", "")):
             if dt.datetime.fromisoformat(m["dateAdded"].replace("Z", "+00:00")) > limite:
-                log.info("Jesús está atendiendo a %s; el bot no responde", contact_id)
+                _ev(paso="omitido", contacto=contact_id, motivo="Jesús atendiendo", texto=m["texto"][:80])
                 return
     for m in hist:
         if m["rol"] == "cliente":
@@ -294,3 +308,10 @@ def lote_resultado(k: str, solo_fallas: bool = False):
     if solo_fallas:
         out["resultados"] = [x for x in out.get("resultados", []) if not x["ok"]]
     return out
+
+
+@app.get("/diag")
+def diag(k: str, n: int = 30):
+    if not _clave_ok(k):
+        raise HTTPException(401)
+    return _eventos[-n:]
