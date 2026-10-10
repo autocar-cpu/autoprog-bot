@@ -345,13 +345,19 @@ async def preparar_imagenes(k: str):
 
 
 @app.get("/probar_foto")
-async def probar_foto(k: str, contacto: str, imagen: str = "catalogo_general"):
+async def probar_foto(k: str, contacto: str, imagen: str = "catalogo_general", texto: str = "Prueba de lámina del catálogo",
+                      origen: str = "adjunto"):
     """Envía una lámina de prueba a un contacto (solo para pruebas con el número de Jesús)."""
     if not _clave_ok(k):
         raise HTTPException(401)
     conv = await ghl.buscar_conversacion(contacto)
-    subidas = await ghl.subir_adjunto(conv, config.IMAGENES[imagen])
+    if origen == "adjunto":
+        subidas = await ghl.subir_adjunto(conv, config.IMAGENES[imagen])
+    elif origen == "biblioteca":
+        subidas = [config.IMAGENES_GHL[config.IMAGENES[imagen]]]
+    else:
+        subidas = [f"{config.URL_PUBLICA}/static/{config.IMAGENES[imagen]}"]
     mid = None
     if subidas:
-        mid = await ghl.enviar_whatsapp(contacto, "Prueba de lámina del catálogo", imagen_url=subidas[0])
+        mid = await ghl.enviar_whatsapp(contacto, texto, imagen_url=subidas[0])
     return {"subidas": subidas, "mensaje": mid, "error": ghl.ultimo_error_media}
