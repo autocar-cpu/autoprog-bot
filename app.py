@@ -160,10 +160,10 @@ async def atender(contact_id: str):
                       "imagen": res.imagen, "escalado": res.escalado, "acciones": res.acciones,
                       "problemas": res.problemas, "modelo": res.modelo_usado})
     del _bitacora[:-200]
-    await _aplicar(contact_id, nombre, res)
+    await _aplicar(contact_id, nombre, res, conv)
 
 
-async def _aplicar(contact_id: str, nombre: str, res: cerebro.Resultado):
+async def _aplicar(contact_id: str, nombre: str, res: cerebro.Resultado, conv: str = ""):
     archivo = config.IMAGENES.get(res.imagen) if res.imagen else None
     if config.MODO == "borrador":
         txt = "BORRADOR DEL BOT:\n" + "\n---\n".join(res.mensajes or ["(sin respuesta)"])
@@ -176,7 +176,10 @@ async def _aplicar(contact_id: str, nombre: str, res: cerebro.Resultado):
 
     # MODO activo: mensajes como persona, con pausa entre cada uno.
     # La imagen va junto al último mensaje (como foto con texto), que es como WhatsApp la entrega bien.
-    url_img = await ghl.url_imagen(archivo) if archivo else None
+    url_img = None
+    if archivo:
+        subidas = await ghl.subir_adjunto(conv, archivo) if conv else []
+        url_img = subidas[0] if subidas else await ghl.url_imagen(archivo)
     if archivo and not url_img:
         _ev(paso="aviso", contacto=contact_id, motivo=f"no se pudo preparar la imagen {archivo}")
     msgs = list(res.mensajes)
@@ -338,3 +341,17 @@ async def preparar_imagenes(k: str):
     out = {n: await ghl.url_imagen(a) for n, a in config.IMAGENES.items()}
     out["error"] = ghl.ultimo_error_media
     return out
+
+
+
+@app.get("/probar_foto")
+async def probar_foto(k: str, contacto: str, imagen: str = "catalogo_general"):
+    """Envía una lámina de prueba a un contacto (solo para pruebas con el número de Jesús)."""
+    if not _clave_ok(k):
+        raise HTTPException(401)
+    conv = await ghl.buscar_conversacion(contacto)
+    subidas = await ghl.subir_adjunto(conv, config.IMAGENES[imagen])
+    mid = None
+    if subidas:
+        mid = await ghl.enviar_whatsapp(contacto, "Prueba de lámina del catálogo", imagen_url=subidas[0])
+    return {"subidas": subidas, "mensaje": mid, "error": ghl.ultimo_error_media}

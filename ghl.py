@@ -158,3 +158,21 @@ async def url_imagen(nombre_archivo: str) -> str | None:
     if url:
         _urls_media[nombre_archivo] = url
     return url
+
+
+
+async def subir_adjunto(conversation_id: str, nombre_archivo: str) -> list[str]:
+    """Sube la imagen como adjunto de la conversación (así GHL la entrega por WhatsApp)."""
+    from pathlib import Path
+    ruta = Path(__file__).parent / "static" / nombre_archivo
+    h = {"Authorization": f"Bearer {config.GHL_TOKEN}", "Version": "2021-04-15", "Accept": "application/json"}
+    async with httpx.AsyncClient(timeout=60) as c:
+        r = await c.post(BASE + "/conversations/messages/upload", headers=h,
+                         data={"conversationId": conversation_id, "locationId": config.GHL_LOCATION_ID},
+                         files={"fileAttachment": (nombre_archivo, ruta.read_bytes(), "image/jpeg")})
+    if r.status_code >= 400:
+        global ultimo_error_media
+        ultimo_error_media = f"adjunto {r.status_code}: {r.text[:300]}"
+        log.error("subida de adjunto -> %s %s", r.status_code, r.text[:300])
+        return []
+    return r.json().get("uploadedFiles", {}) and list(r.json()["uploadedFiles"].values()) or r.json().get("urls", [])
