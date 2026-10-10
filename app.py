@@ -214,3 +214,68 @@ def bitacora(k: str, n: int = 30):
     if not _clave_ok(k):
         raise HTTPException(401)
     return _bitacora[-n:]
+
+
+# ------------------------------------------------------------------ batería de pruebas
+_lote: dict = {"estado": "sin correr", "resultados": []}
+
+
+def _evaluar(caso: dict, r: cerebro.Resultado) -> list[str]:
+    import re as _re
+    e, fallas = caso["esperado"], []
+    texto = " ".join(r.mensajes)
+    montos = {int(x.replace(".", "")) for x in _re.findall(r"\$\s?(\d{1,3}(?:\.\d{3})+)", texto)}
+    if e.get("precio") and e["precio"] not in montos:
+        fallas.append(f"esperaba precio {e['precio']}, dijo {sorted(montos) or 'nada'}")
+    if e.get("sin_precio") and montos:
+        fallas.append(f"no debía dar precio, dijo {sorted(montos)}")
+    if e.get("escala") and not r.escalado:
+        fallas.append("debía escalar a Jesús y no lo hizo")
+    if not e.get("escala") and r.escalado:
+        fallas.append(f"escaló sin necesidad: {r.escalado.get('motivo')}")
+    if e.get("imagen") and r.imagen != e["imagen"]:
+        fallas.append(f"esperaba imagen {e['imagen']}, mandó '{r.imagen}'")
+    for p in e.get("no_contiene", []):
+        if p.lower() in texto.lower():
+            fallas.append(f"contiene '{p}'")
+    if r.problemas:
+        fallas.append("revisor: " + "; ".join(r.problemas))
+    return fallas
+
+
+async def _correr_lote():
+    from casos_prueba import CASOS
+    _lote.update(estado="corriendo", resultados=[], inicio=time.time())
+    for caso in CASOS:
+        hist = [{"rol": "cliente" if q == "c" else "jesus", "texto": t} for q, t in caso["hist"]]
+        try:
+            r = await cerebro.pensar(cerebro.Contexto("simulacion", caso["nombre"], hist, simulacion=True))
+            fallas = _evaluar(caso, r)
+            _lote["resultados"].append({"caso": caso["id"], "ok": not fallas, "fallas": fallas,
+                                        "respuesta": r.mensajes, "imagen": r.imagen,
+                                        "escalado": r.escalado, "modelo": r.modelo_usado})
+        except Exception as ex:
+            _lote["resultados"].append({"caso": caso["id"], "ok": False, "fallas": [f"error: {ex}"]})
+    ok = sum(1 for x in _lote["resultados"] if x["ok"])
+    _lote.update(estado="terminado", resumen=f"{ok}/{len(_lote['resultados'])} casos OK",
+                 segundos=int(time.time() - _lote["inicio"]))
+
+
+@app.get("/lote/iniciar")
+async def lote_iniciar(k: str):
+    if not _clave_ok(k):
+        raise HTTPException(401)
+    if _lote.get("estado") == "corriendo":
+        return {"estado": "ya está corriendo"}
+    asyncio.create_task(_correr_lote())
+    return {"estado": "iniciado"}
+
+
+@app.get("/lote/resultado")
+def lote_resultado(k: str, solo_fallas: bool = False):
+    if not _clave_ok(k):
+        raise HTTPException(401)
+    out = dict(_lote)
+    if solo_fallas:
+        out["resultados"] = [x for x in out.get("resultados", []) if not x["ok"]]
+    return out
