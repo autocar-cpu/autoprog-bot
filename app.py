@@ -87,8 +87,10 @@ async def _esperar_y_atender(contact_id: str):
         pass
     except Exception as e:
         import traceback
-        _ev(paso="error", contacto=contact_id, error=f"{type(e).__name__}: {e}"[:300],
-            donde=traceback.format_exc()[-600:])
+        import re as _re
+        limpio = lambda x: _re.sub(r"(Bearer|pit-|sk-ant-)\S*", "[oculto]", x)
+        _ev(paso="error", contacto=contact_id, error=limpio(f"{type(e).__name__}: {e}")[:300],
+            donde=limpio(traceback.format_exc()[-600:]))
         log.exception("error atendiendo %s", contact_id)
     finally:
         if _pendientes.get(contact_id) is asyncio.current_task():

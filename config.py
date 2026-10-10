@@ -1,11 +1,12 @@
 """Configuración del bot. Todo lo sensible viene de variables de entorno (Railway → Variables)."""
 import os
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_API_KEY = (os.getenv("ANTHROPIC_API_KEY", "").split() or [""])[0]
 MODELO = os.getenv("MODELO", "claude-sonnet-5-5")          # cerebro principal
 MODELO_DIFICIL = os.getenv("MODELO_DIFICIL", "claude-opus-5-5")  # reintento si el revisor rechaza
 
-GHL_TOKEN = os.getenv("GHL_TOKEN", "")                     # Private Integration Token de GHL
+# Private Integration Token de GHL. Solo la primera palabra: si al pegarlo quedó texto extra, se descarta.
+GHL_TOKEN = (os.getenv("GHL_TOKEN", "").split() or [""])[0]
 GHL_LOCATION_ID = os.getenv("GHL_LOCATION_ID", "GQTHBIr92oupzd54Ui7X")
 GHL_CALENDARIO_ID = os.getenv("GHL_CALENDARIO_ID", "EjeX9T2HQO3sriUhsA8R")  # "Servicio a domicilio Autoprog"
 GHL_USUARIO_JESUS = os.getenv("GHL_USUARIO_JESUS", "wxVhUI6b9Gf5xYTtKroz")
