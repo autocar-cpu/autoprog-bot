@@ -275,13 +275,13 @@ def _evaluar(caso: dict, r: cerebro.Resultado) -> list[str]:
     return fallas
 
 
-async def _correr_lote():
+async def _correr_lote(modelo: str | None = None):
     from casos_prueba import CASOS
     _lote.update(estado="corriendo", resultados=[], inicio=time.time())
     for caso in CASOS:
         hist = [{"rol": "cliente" if q == "c" else "jesus", "texto": t} for q, t in caso["hist"]]
         try:
-            r = await cerebro.pensar(cerebro.Contexto("simulacion", caso["nombre"], hist, simulacion=True))
+            r = await cerebro.pensar(cerebro.Contexto("simulacion", caso["nombre"], hist, simulacion=True), modelo)
             fallas = _evaluar(caso, r)
             _lote["resultados"].append({"caso": caso["id"], "ok": not fallas, "fallas": fallas,
                                         "respuesta": r.mensajes, "imagen": r.imagen,
@@ -294,12 +294,12 @@ async def _correr_lote():
 
 
 @app.get("/lote/iniciar")
-async def lote_iniciar(k: str):
+async def lote_iniciar(k: str, modelo: str | None = None):
     if not _clave_ok(k):
         raise HTTPException(401)
     if _lote.get("estado") == "corriendo":
         return {"estado": "ya está corriendo"}
-    asyncio.create_task(_correr_lote())
+    asyncio.create_task(_correr_lote(modelo))
     return {"estado": "iniciado"}
 
 

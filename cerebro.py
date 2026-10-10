@@ -172,12 +172,12 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
     return "Herramienta desconocida."
 
 
-async def pensar(ctx: Contexto) -> Resultado:
+async def pensar(ctx: Contexto, modelo_forzado: str | None = None) -> Resultado:
     res = Resultado()
     montos: set[int] = set()
     mensajes = [{"role": "user", "content": await _transcripcion(ctx)}]
     sistema = [{"type": "text", "text": SISTEMA, "cache_control": {"type": "ephemeral"}}]
-    modelo = config.MODELO
+    modelo = modelo_forzado or config.MODELO
     reintentos_revisor = 0
 
     for _ in range(10):
