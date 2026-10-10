@@ -7,6 +7,8 @@ import logging
 from dataclasses import dataclass, field
 from zoneinfo import ZoneInfo
 
+import re
+
 import anthropic
 
 import config
@@ -77,6 +79,7 @@ class Resultado:
     acciones: list[dict] = field(default_factory=list)
     problemas: list[str] = field(default_factory=list)
     modelo_usado: str = ""
+    imagen_sugerida: str = ""
 
 
 @dataclass
@@ -138,6 +141,8 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
             if v:
                 montos.add(v)
         res.acciones.append({"cotizar": args, "resultado": c.estado, "precio": c.precio, "precio_max": c.precio_max})
+        if c.imagen_sugerida:
+            res.imagen_sugerida = c.imagen_sugerida
         d = c.dict()
         d.pop("interno", None)   # el sistema IMMO no se le pasa a la IA para que no lo repita al cliente
         return json.dumps(d, ensure_ascii=False)
@@ -170,6 +175,18 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
                 "llave_deseada": args.get("llave_deseada")})
         return "Guardado."
     return "Herramienta desconocida."
+
+
+PIDE_FOTOS = re.compile(r"\b(foto|fotos|imagen|imagenes|imágenes|lámina|lamina|catálogo|catalogo|modelos de llave|ver (las )?llaves)\b", re.I)
+PROMETE_DESPUES = re.compile(r"(te (las?|lo) (mando|envío|envio|paso)|desde mi celular|en unos minutos|más rato|mas rato|te mando (las )?fotos)", re.I)
+
+
+def _pide_fotos(ctx: "Contexto") -> bool:
+    for m in reversed(ctx.historial):
+        if m["rol"] == "cliente":
+            return bool(PIDE_FOTOS.search(m.get("texto") or ""))
+        break
+    return False
 
 
 async def pensar(ctx: Contexto, modelo_forzado: str | None = None) -> Resultado:
@@ -206,6 +223,10 @@ async def pensar(ctx: Contexto, modelo_forzado: str | None = None) -> Resultado:
         if final:
             msgs = [m.strip() for m in final.input.get("mensajes", []) if m and m.strip()]
             problemas = revisar(msgs, montos)
+            if final.name == "enviar_respuesta" and any(PROMETE_DESPUES.search(x) for x in msgs) \
+                    and not final.input.get("imagen"):
+                problemas.append("No prometas mandar fotos después ni desde otro teléfono: tú mandas la imagen AHORA "
+                                 "con el campo 'imagen' de enviar_respuesta, y el último mensaje la presenta.")
             if problemas and reintentos_revisor < 2:
                 reintentos_revisor += 1
                 modelo = config.MODELO_DIFICIL     # segundo intento con el modelo más fuerte
@@ -223,6 +244,8 @@ async def pensar(ctx: Contexto, modelo_forzado: str | None = None) -> Resultado:
                 res.escalado = {"motivo": final.input.get("motivo", ""), "resumen": final.input.get("resumen", "")}
             else:
                 res.imagen = final.input.get("imagen") or ""
+                if not res.imagen and _pide_fotos(ctx):   # el cliente pidió fotos: se mandan sí o sí
+                    res.imagen = res.imagen_sugerida or "catalogo_general"
             return res
 
         mensajes.append({"role": "user", "content": resultados})
