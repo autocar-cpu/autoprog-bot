@@ -166,6 +166,7 @@ class Cotizacion:
     falta: list[str] = field(default_factory=list)
     motivo: str = ""
     nota_cliente: str = ""      # texto que el bot puede usar tal cual
+    imagen_sugerida: str = ""   # lámina del catálogo que corresponde a este auto
     interno: dict = field(default_factory=dict)  # sistema, familia, confianza (no se muestra al cliente)
 
     def dict(self):
@@ -219,6 +220,9 @@ def cotizar(modelo_texto: str = "", anio: int | None = None, lugar_texto: str = 
         return c
 
     fam, accion, sistema = fila["FAMILIA_PRECIO"], fila["ACCION"], fila["SISTEMA"]
+    c.imagen_sugerida = ("selector_mini" if str(nombre).startswith("MINI") else
+                         {"BDC23": "selector_serie_g", "BCP": "selector_serie_g", "BDC": "selector_llave_5",
+                          "CAS4_FEM": "selector_llave_4"}.get(fam, "catalogo_general"))
     c.interno = {"sistema": sistema, "familia": fam, "confianza": fila["CONFIANZA"],
                  "chasis": fila["CHASIS"], "accion_tabla": accion}
 

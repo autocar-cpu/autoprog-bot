@@ -118,3 +118,37 @@ async def agendar(contact_id: str, inicio_iso: str, direccion: str, titulo: str,
         "contactId": contact_id, "startTime": inicio.isoformat(), "endTime": fin.isoformat(),
         "title": titulo, "address": direccion, "appointmentStatus": "confirmed",
         "assignedUserId": config.GHL_USUARIO_JESUS, "notes": notas, "toNotify": True})
+
+
+# ------------------------------------------------------------ imágenes del catálogo
+_urls_media: dict[str, str] = {}
+
+
+async def url_imagen(nombre_archivo: str) -> str | None:
+    """URL alojada en GHL de una imagen del catálogo (WhatsApp entrega bien las de GHL).
+    Busca si ya está subida; si no, la sube una vez desde la carpeta static."""
+    from pathlib import Path
+    if nombre_archivo in _urls_media:
+        return _urls_media[nombre_archivo]
+    nombre = f"bot-autoprog-{nombre_archivo}"
+    try:
+        d = await _req("GET", "/medias/files", params={"altId": config.GHL_LOCATION_ID, "altType": "location",
+                                                        "type": "file", "query": nombre, "limit": 5})
+        for f in d.get("files", []):
+            if f.get("name") == nombre and f.get("url"):
+                _urls_media[nombre_archivo] = f["url"]
+                return f["url"]
+    except Exception:
+        log.warning("no se pudo listar medios")
+    ruta = Path(__file__).parent / "static" / nombre_archivo
+    h = {"Authorization": f"Bearer {config.GHL_TOKEN}", "Version": "2021-07-28", "Accept": "application/json"}
+    async with httpx.AsyncClient(timeout=60) as c:
+        r = await c.post(BASE + "/medias/upload-file", headers=h,
+                         files={"file": (nombre, ruta.read_bytes(), "image/jpeg")}, data={"name": nombre})
+    if r.status_code >= 400:
+        log.error("subida de imagen %s -> %s %s", nombre, r.status_code, r.text[:300])
+        return None
+    url = r.json().get("url")
+    if url:
+        _urls_media[nombre_archivo] = url
+    return url

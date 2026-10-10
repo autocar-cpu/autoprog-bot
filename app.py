@@ -164,30 +164,30 @@ async def atender(contact_id: str):
 
 
 async def _aplicar(contact_id: str, nombre: str, res: cerebro.Resultado):
-    url_img = f"{config.URL_PUBLICA}/static/{config.IMAGENES[res.imagen]}" if res.imagen else None
+    archivo = config.IMAGENES.get(res.imagen) if res.imagen else None
     if config.MODO == "borrador":
         txt = "BORRADOR DEL BOT:\n" + "\n---\n".join(res.mensajes or ["(sin respuesta)"])
-        if url_img:
+        if archivo:
             txt += f"\n[imagen: {res.imagen}]"
         if res.escalado:
             txt += f"\n[escalaría: {res.escalado['motivo']}]"
         await ghl.nota_interna(contact_id, txt)
         return
 
-    # MODO activo: mensajes como persona, con pausa entre cada uno
+    # MODO activo: mensajes como persona, con pausa entre cada uno.
+    # La imagen va junto al último mensaje (como foto con texto), que es como WhatsApp la entrega bien.
+    url_img = await ghl.url_imagen(archivo) if archivo else None
+    if archivo and not url_img:
+        _ev(paso="aviso", contacto=contact_id, motivo=f"no se pudo preparar la imagen {archivo}")
     msgs = list(res.mensajes)
     for i, m in enumerate(msgs):
-        if url_img and i == len(msgs) - 1:
-            mid = await ghl.enviar_whatsapp(contact_id, imagen_url=url_img)
-            if mid:
-                _enviados_bot.add(mid)
-            await asyncio.sleep(2)
-        mid = await ghl.enviar_whatsapp(contact_id, m)
+        con_foto = url_img if (i == len(msgs) - 1) else None
+        mid = await ghl.enviar_whatsapp(contact_id, m, imagen_url=con_foto)
         if mid:
             _enviados_bot.add(mid)
         await asyncio.sleep(1.5)
     if url_img and not msgs:
-        mid = await ghl.enviar_whatsapp(contact_id, imagen_url=url_img)
+        mid = await ghl.enviar_whatsapp(contact_id, " ", imagen_url=url_img)
         if mid:
             _enviados_bot.add(mid)
 
@@ -328,3 +328,11 @@ async def reintentar(k: str, contacto: str):
     _ev(paso="reintento manual", contacto=contacto)
     asyncio.create_task(_esperar_y_atender(contacto))
     return {"ok": True}
+
+
+@app.get("/preparar_imagenes")
+async def preparar_imagenes(k: str):
+    """Sube (una vez) las láminas del catálogo a GHL y muestra sus URLs."""
+    if not _clave_ok(k):
+        raise HTTPException(401)
+    return {n: await ghl.url_imagen(a) for n, a in config.IMAGENES.items()}
