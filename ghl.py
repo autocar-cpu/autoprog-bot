@@ -176,3 +176,15 @@ async def subir_adjunto(conversation_id: str, nombre_archivo: str) -> list[str]:
         log.error("subida de adjunto -> %s %s", r.status_code, r.text[:300])
         return []
     return r.json().get("uploadedFiles", {}) and list(r.json()["uploadedFiles"].values()) or r.json().get("urls", [])
+
+
+
+async def enviar_imagen_whatsapp(contact_id: str, url: str, nombre: str = "llaves.jpg") -> str | None:
+    """Foto por WhatsApp con el formato que exige GHL (objeto whatsapp.media, no 'attachments')."""
+    cuerpo = {"type": "WhatsApp", "contactId": contact_id, "status": "delivered",
+              "whatsapp": {"type": "media", "media": {"type": "image", "url": url, "name": nombre}}}
+    try:
+        d = await _req("POST", "/conversations/messages", "2021-04-15", json=cuerpo)
+    except httpx.HTTPStatusError:
+        d = await _req("POST", "/conversations/messages", "v3", json=cuerpo)
+    return d.get("messageId") or d.get("id")

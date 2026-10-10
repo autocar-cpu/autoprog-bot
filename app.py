@@ -174,23 +174,26 @@ async def _aplicar(contact_id: str, nombre: str, res: cerebro.Resultado, conv: s
         await ghl.nota_interna(contact_id, txt)
         return
 
-    # MODO activo: mensajes como persona, con pausa entre cada uno.
-    # La imagen va junto al último mensaje (como foto con texto), que es como WhatsApp la entrega bien.
+    # MODO activo: mensajes como persona, con pausa entre cada uno; la foto va antes del último mensaje.
     url_img = None
     if archivo:
         subidas = await ghl.subir_adjunto(conv, archivo) if conv else []
         url_img = subidas[0] if subidas else await ghl.url_imagen(archivo)
-    if archivo and not url_img:
-        _ev(paso="aviso", contacto=contact_id, motivo=f"no se pudo preparar la imagen {archivo}")
+        if not url_img:
+            _ev(paso="aviso", contacto=contact_id, motivo=f"no se pudo preparar la imagen {archivo}")
     msgs = list(res.mensajes)
     for i, m in enumerate(msgs):
-        con_foto = url_img if (i == len(msgs) - 1) else None
-        mid = await ghl.enviar_whatsapp(contact_id, m, imagen_url=con_foto)
+        if url_img and i == len(msgs) - 1:
+            mid = await ghl.enviar_imagen_whatsapp(contact_id, url_img, archivo)
+            if mid:
+                _enviados_bot.add(mid)
+            await asyncio.sleep(2)
+        mid = await ghl.enviar_whatsapp(contact_id, m)
         if mid:
             _enviados_bot.add(mid)
         await asyncio.sleep(1.5)
     if url_img and not msgs:
-        mid = await ghl.enviar_whatsapp(contact_id, " ", imagen_url=url_img)
+        mid = await ghl.enviar_imagen_whatsapp(contact_id, url_img, archivo)
         if mid:
             _enviados_bot.add(mid)
 
@@ -359,5 +362,7 @@ async def probar_foto(k: str, contacto: str, imagen: str = "catalogo_general", t
         subidas = [f"{config.URL_PUBLICA}/static/{config.IMAGENES[imagen]}"]
     mid = None
     if subidas:
-        mid = await ghl.enviar_whatsapp(contacto, texto, imagen_url=subidas[0])
+        mid = await ghl.enviar_imagen_whatsapp(contacto, subidas[0], config.IMAGENES[imagen])
+        if texto:
+            await ghl.enviar_whatsapp(contacto, texto)
     return {"subidas": subidas, "mensaje": mid, "error": ghl.ultimo_error_media}
