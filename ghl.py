@@ -39,6 +39,14 @@ async def buscar_conversacion(contact_id: str) -> str | None:
     return conv[0]["id"] if conv else None
 
 
+async def conversaciones_entrantes_recientes(limite: int = 60) -> list[dict]:
+    """Conversaciones cuyo último mensaje es del cliente, más recientes primero."""
+    d = await _req("GET", "/conversations/search", "2021-04-15",
+                   params={"locationId": config.GHL_LOCATION_ID, "lastMessageDirection": "inbound",
+                           "sortBy": "last_message_date", "sort": "desc", "limit": limite})
+    return d.get("conversations") or []
+
+
 async def enviar_whatsapp(contact_id: str, texto: str = "", imagen_url: str | None = None) -> str | None:
     cuerpo = {"type": "WhatsApp", "contactId": contact_id}
     if texto:

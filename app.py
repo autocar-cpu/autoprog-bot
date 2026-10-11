@@ -27,7 +27,8 @@ log = logging.getLogger("app")
 app = FastAPI(title="Autoprog bot")
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
-_pendientes: dict[str, asyncio.Task] = {}     # contact_id -> tarea con espera
+_estado: dict[str, dict] = {}                # contact_id -> {"tarea", "fase": esperando|atendiendo, "repetir"}
+_barrido_visto: dict[str, float] = {}         # conversación -> lastMessageDate ya revisado por el barrido
 _procesados: set[str] = set()                 # ids de mensajes entrantes ya atendidos
 _enviados_bot: set[str] = set()               # ids de mensajes que mandó el bot
 _bitacora: list[dict] = []                    # últimas respuestas (para revisar)
@@ -37,7 +38,8 @@ _eventos: list[dict] = []                     # diagnóstico: qué pasó con cad
 def _ev(**kw):
     kw["t"] = dt.datetime.now(ZoneInfo(config.ZONA_HORARIA)).strftime("%d-%m %H:%M:%S")
     _eventos.append(kw)
-    del _eventos[:-100]
+    del _eventos[:-300]
+    log.info("EVENTO %s", json.dumps(kw, ensure_ascii=False)[:500])   # queda en los logs de Railway
 
 
 def _clave_ok(k: str | None) -> bool:
@@ -72,29 +74,55 @@ async def webhook(request: Request, k: str | None = None):
         return {"ok": False, "motivo": "sin contacto"}
     if config.MODO == "apagado":
         return {"ok": True, "modo": "apagado"}
-    tarea = _pendientes.pop(contact_id, None)
-    if tarea and not tarea.done():
-        tarea.cancel()                      # llegó otro mensaje: reinicia la espera
-    _pendientes[contact_id] = asyncio.create_task(_esperar_y_atender(contact_id))
+    _disparar(contact_id, config.ESPERA_SEGUNDOS, "webhook")
     return {"ok": True}
 
 
-async def _esperar_y_atender(contact_id: str):
+def _disparar(contact_id: str, espera: float, origen: str):
+    """Programa la atención de un contacto.
+    - Si está esperando (juntando mensajes), reinicia la espera.
+    - Si ya está pensando/respondiendo, NO lo corta: marca que hay que repasar al terminar
+      (antes se cancelaba a medio pensar y el mensaje nuevo quedaba como 'ya procesado' sin respuesta)."""
+    e = _estado.get(contact_id)
+    if e and not e["tarea"].done():
+        if e["fase"] == "esperando":
+            e["tarea"].cancel()
+        else:
+            e["repetir"] = True
+            _ev(paso="en curso: se repasa al terminar", contacto=contact_id, origen=origen)
+            return
+    e = {"fase": "esperando", "repetir": False}
+    e["tarea"] = asyncio.create_task(_ciclo(contact_id, e, espera))
+    _estado[contact_id] = e
+
+
+async def _ciclo(contact_id: str, e: dict, espera: float):
     try:
-        await asyncio.sleep(config.ESPERA_SEGUNDOS)
-        await atender(contact_id)
+        await asyncio.sleep(espera)
+        for _ in range(3):
+            e["fase"], e["repetir"] = "atendiendo", False
+            await atender(contact_id)
+            if not e["repetir"]:
+                break
+            e["fase"] = "esperando"
+            await asyncio.sleep(config.ESPERA_SEGUNDOS)
     except asyncio.CancelledError:
         pass
-    except Exception as e:
+    except Exception as ex:
         import traceback
         import re as _re
         limpio = lambda x: _re.sub(r"(Bearer|pit-|sk-ant-)\S*", "[oculto]", x)
-        _ev(paso="error", contacto=contact_id, error=limpio(f"{type(e).__name__}: {e}")[:300],
+        _ev(paso="error", contacto=contact_id, error=limpio(f"{type(ex).__name__}: {ex}")[:300],
             donde=limpio(traceback.format_exc()[-600:]))
         log.exception("error atendiendo %s", contact_id)
     finally:
-        if _pendientes.get(contact_id) is asyncio.current_task():
-            _pendientes.pop(contact_id, None)
+        if _estado.get(contact_id) is e:
+            _estado.pop(contact_id, None)
+
+
+async def _esperar_y_atender(contact_id: str):
+    """Compatibilidad: atender ya (lo usa /reintentar)."""
+    _disparar(contact_id, 0, "manual")
 
 
 def _historial(msgs: list[dict]) -> list[dict]:
@@ -129,9 +157,14 @@ async def atender(contact_id: str):
     if config.ETIQUETA_BOT_OFF in etiquetas or config.ETIQUETA_ESCALADO in etiquetas:
         _ev(paso="omitido", contacto=contact_id, motivo="etiqueta bot-off/escalado")
         return
-    conv = await ghl.buscar_conversacion(contact_id)
+    conv = None
+    for intento in range(5):        # GHL tarda en indexar las conversaciones nuevas (leads recién llegados)
+        conv = await ghl.buscar_conversacion(contact_id)
+        if conv:
+            break
+        await asyncio.sleep(6)
     if not conv:
-        _ev(paso="omitido", contacto=contact_id, motivo="sin conversación")
+        _ev(paso="omitido", contacto=contact_id, motivo="sin conversación (GHL no la encuentra aún; el barrido la reintenta)")
         return
     hist = _historial(await ghl.mensajes(conv))
     if not hist or hist[-1]["rol"] != "cliente":
@@ -148,19 +181,70 @@ async def atender(contact_id: str):
             if dt.datetime.fromisoformat(m["dateAdded"].replace("Z", "+00:00")) > limite:
                 _ev(paso="omitido", contacto=contact_id, motivo="Jesús atendiendo", texto=m["texto"][:80])
                 return
-    for m in hist:
-        if m["rol"] == "cliente":
-            _procesados.add(m["id"])
 
     nombre = contacto.get("firstName") or contacto.get("contactName") or ""
-    ctx = cerebro.Contexto(contact_id, nombre, hist, simulacion=False)
-    res = await cerebro.pensar(ctx)
+    for _ in range(3):
+        ctx = cerebro.Contexto(contact_id, nombre, hist, simulacion=False)
+        res = await cerebro.pensar(ctx)
+        # ¿El cliente escribió algo más mientras se pensaba? Entonces se vuelve a pensar con todo.
+        nuevo = _historial(await ghl.mensajes(conv))
+        ids_antes = {m["id"] for m in hist}
+        if any(m["rol"] == "cliente" and m["id"] not in ids_antes for m in nuevo):
+            _ev(paso="repensar", contacto=contact_id, motivo="llegó otro mensaje mientras pensaba")
+            hist = nuevo
+            continue
+        break
     _bitacora.append({"t": time.time(), "contacto": contact_id, "nombre": nombre,
                       "ultimo_cliente": hist[-1]["texto"][:200], "respuesta": res.mensajes,
                       "imagen": res.imagen, "escalado": res.escalado, "acciones": res.acciones,
                       "problemas": res.problemas, "modelo": res.modelo_usado})
     del _bitacora[:-200]
     await _aplicar(contact_id, nombre, res, conv)
+    for m in hist:                 # recién ahora queda como atendido
+        if m["rol"] == "cliente":
+            _procesados.add(m["id"])
+    _ev(paso="respondido" if res.mensajes else "sin respuesta (decisión del bot)", contacto=contact_id,
+        escalado=bool(res.escalado), n_mensajes=len(res.mensajes))
+
+
+ACUSE = __import__("re").compile(r"^\W*(ok+|oki|okey|okay|vale|dale|listo|ya|gracias|muchas gracias|perfecto|bueno|"
+                                 r"de acuerdo|genial|excelente|si|sí)\W*$", __import__("re").I)
+
+
+async def _barrido():
+    """Red de seguridad: cada pocos minutos busca chats cuyo último mensaje es del cliente y nadie respondió
+    (webhook que no llegó, GHL que no encontraba la conversación, caída del servidor) y los atiende."""
+    await asyncio.sleep(30)
+    while True:
+        try:
+            if config.MODO == "activo":
+                ahora = time.time() * 1000
+                for c in await ghl.conversaciones_entrantes_recientes():
+                    edad_min = (ahora - (c.get("lastMessageDate") or 0)) / 60000
+                    etiquetas = [t.lower() for t in c.get("tags") or []]
+                    if not (1.5 <= edad_min <= config.BARRIDO_HORAS * 60):
+                        continue
+                    if c.get("lastMessageType") != "TYPE_WHATSAPP" or c.get("lastMessageDirection") != "inbound":
+                        continue
+                    if config.ETIQUETA_BOT_OFF in etiquetas or config.ETIQUETA_ESCALADO in etiquetas:
+                        continue
+                    if ACUSE.match(c.get("lastMessageBody") or "x"):
+                        continue        # "ok", "vale", "gracias": no requiere respuesta
+                    if _barrido_visto.get(c["id"]) == c.get("lastMessageDate") or c["contactId"] in _estado:
+                        continue
+                    _barrido_visto[c["id"]] = c.get("lastMessageDate")
+                    _ev(paso="barrido rescata", contacto=c["contactId"], minutos=int(edad_min),
+                        ultimo=(c.get("lastMessageBody") or "")[:60])
+                    _disparar(c["contactId"], 0, "barrido")
+                    await asyncio.sleep(2)
+        except Exception as ex:
+            log.exception("barrido: %s", ex)
+        await asyncio.sleep(config.BARRIDO_SEGUNDOS)
+
+
+@app.on_event("startup")
+async def _arrancar_barrido():
+    asyncio.create_task(_barrido())
 
 
 async def _aplicar(contact_id: str, nombre: str, res: cerebro.Resultado, conv: str = ""):
