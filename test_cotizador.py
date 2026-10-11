@@ -77,3 +77,28 @@ def test_bdc_reciente_mas_caro():
     assert cotizar("X1", 2020, "Providencia").precio == 220000
     assert cotizar("X1", 2016, "Providencia").precio == 160000
     assert cotizar("320i", 2015, "Providencia").precio == 150000
+
+
+def test_pantalla_no_compatible_en_auto_antiguo():
+    """Caso Jd 11-10-2026: 120 del 2005 (CAS) llegó por el anuncio de llave con pantalla; se le cotizó $549.000."""
+    c = cotizar("120", 2005, "San Bernardo", tipo_llave="pantalla")
+    assert c.interno.get("pantalla_no_compatible")
+    assert "NO es compatible" in c.aviso
+    assert c.precio and c.precio < 400000          # precio de su llave normal, no de la pantalla
+    assert c.precio == cotizar("120", 2005, "San Bernardo").precio
+
+
+def test_pantalla_no_en_serie_f():
+    for m, a in (("118i", 2014), ("X5", 2016), ("520d", 2015)):
+        c = cotizar(m, a, "Providencia", tipo_llave="pantalla")
+        assert c.interno.get("pantalla_no_compatible") or c.estado == "falta_dato", (m, a, c.estado)
+
+
+def test_pantalla_si_en_serie_g():
+    c = cotizar("X5", 2021, "Providencia", tipo_llave="pantalla")
+    assert c.estado == "cotizar_desde" and c.precio >= 529000 and not c.aviso
+
+
+def test_pantalla_ano_de_transicion_pide_foto():
+    c = cotizar("320i", 2019, "Providencia", tipo_llave="pantalla")
+    assert c.estado == "falta_dato" and "foto_llave" in c.falta
