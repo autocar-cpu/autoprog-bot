@@ -62,7 +62,8 @@ CAMPOS = {  # ids de campos personalizados del contacto en GHL
 
 # Pipeline de viajes a regiones (se busca por nombre; si no existe, se usa el pipeline de la marca)
 PIPELINE_VIAJES = os.getenv("PIPELINE_VIAJES", "VIAJES REGIONES")
-ETAPAS_VIAJES = ["Interesado", "Cupo reservado", "Ruta confirmada", "Agendado", "Ganado", "Perdido"]
+ETAPAS_VIAJES = ["Ruta O'Higgins", "Ruta Valparaíso", "Ruta Maule Ñuble Concepción", "Ruta Sur Temuco Osorno",
+                 "Ruta Norte", "Fecha confirmada", "Ganado", "Perdido"]
 
 ETIQUETA_BOT_OFF = "bot-off"            # Jesús la pone y el bot no vuelve a hablarle a ese contacto
 ETIQUETA_ESCALADO = "bot-escalado"      # el bot la pone al pasar el caso a Jesús (y se calla)

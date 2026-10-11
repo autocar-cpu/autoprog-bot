@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 import cerebro
 import config
 import ghl
+import regiones
 from cotizador import cotizar
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -287,10 +288,14 @@ async def _aplicar(contact_id: str, nombre: str, res: cerebro.Resultado, conv: s
     agendo = any("agendar" in a for a in res.acciones)
     cupo = any("reservar_cupo" in a for a in res.acciones)
     en_region = bool(res.region and res.region.get("tipo") == "region")
-    if en_region and not res.escalado and (precios or cupo):
+    if en_region and not res.escalado:
+        # Cliente de regiones: va a la columna de su ruta en VIAJES REGIONES, con el precio si ya lo tiene.
         valor = precios[-1]["precio"] if precios else None
+        etapa = regiones.ETAPA_RUTA.get(res.region.get("bloque", ""), "")
         try:
-            movido = await ghl.mover_a_viajes(contact_id, nombre, "Cupo reservado" if cupo else "Interesado", valor)
+            movido = bool(etapa) and await ghl.mover_a_viajes(contact_id, nombre, etapa, valor)
+            if cupo:
+                await ghl.agregar_etiquetas(contact_id, ["cupo-reservado"])
         except Exception:
             log.exception("no se pudo mover a viajes")
             movido = False

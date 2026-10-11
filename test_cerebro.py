@@ -52,3 +52,29 @@ def test_emoji_rechazado():
 def test_anio_no_es_precio():
     from revisor import revisar
     assert revisar(["Tu X6 del 2019, a las 10:00 del 12-10"], set()) == []
+
+
+def test_no_menciona_nombre_de_jesus():
+    from revisor import revisar
+    assert revisar(["Hola, te escribe Jesús, ingeniero especialista"], set())
+    assert revisar(["Soy Jesus Perdomo"], set())
+    assert revisar(["Hola, te escribo de Autoprog, programación de llaves BMW a domicilio"], set()) == []
+
+
+def test_primer_contacto_siempre_lleva_imagen():
+    """Caso Rodrigo 11-10-2026: 730i 2013, primera respuesta sin lámina."""
+    falso = FalsoClaude([[_uso("1", "enviar_respuesta", {"mensajes": ["¿En qué comuna estás?"]})]])
+    cerebro._cliente = falso
+    ctx = cerebro.Contexto("x", "Rodrigo", [{"rol": "cliente", "texto": "cuanto sale la llave para bmw 730i 2013"}])
+    r = asyncio.run(cerebro.pensar(ctx))
+    assert r.imagen == "catalogo_general"
+
+
+def test_segunda_respuesta_no_repite_imagen():
+    falso = FalsoClaude([[_uso("1", "enviar_respuesta", {"mensajes": ["¿En qué comuna estás?"]})]])
+    cerebro._cliente = falso
+    ctx = cerebro.Contexto("x", "Rodrigo", [{"rol": "cliente", "texto": "hola"},
+                                            {"rol": "jesus", "texto": "Hola, te escribo de Autoprog"},
+                                            {"rol": "cliente", "texto": "730i 2013"}])
+    r = asyncio.run(cerebro.pensar(ctx))
+    assert r.imagen == ""

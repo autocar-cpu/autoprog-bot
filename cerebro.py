@@ -121,7 +121,7 @@ async def _transcripcion(ctx: Contexto) -> list[dict]:
               f"Nombre del contacto en WhatsApp: {ctx.nombre or '(sin nombre)'}", "", "Conversación (más antigua arriba):"]
     imagenes = []
     for m in ctx.historial[-40:]:
-        quien = "CLIENTE" if m["rol"] == "cliente" else "TÚ (Jesús)"
+        quien = "CLIENTE" if m["rol"] == "cliente" else "TÚ (Autoprog)"
         txt = (m.get("texto") or "").strip()
         if m.get("imagenes"):
             txt += f" [envió {len(m['imagenes'])} imagen(es)]"
@@ -204,6 +204,11 @@ PIDE_FOTOS = re.compile(r"\b(foto|fotos|imagen|imagenes|imágenes|lámina|lamina
 PROMETE_DESPUES = re.compile(r"(te (las?|lo) (mando|envío|envio|paso)|desde mi celular|en unos minutos|más rato|mas rato|te mando (las )?fotos)", re.I)
 
 
+def _primer_contacto(ctx: "Contexto") -> bool:
+    """True si Autoprog todavía no le ha escrito nada a este cliente."""
+    return not any(m["rol"] != "cliente" for m in ctx.historial)
+
+
 def _pide_fotos(ctx: "Contexto") -> bool:
     for m in reversed(ctx.historial):
         if m["rol"] == "cliente":
@@ -268,6 +273,9 @@ async def pensar(ctx: Contexto, modelo_forzado: str | None = None) -> Resultado:
             else:
                 res.imagen = final.input.get("imagen") or ""
                 if not res.imagen and _pide_fotos(ctx):   # el cliente pidió fotos: se mandan sí o sí
+                    res.imagen = res.imagen_sugerida or "catalogo_general"
+                if not res.imagen and res.mensajes and _primer_contacto(ctx):
+                    # Protocolo de primer contacto: la primera respuesta siempre lleva la lámina de llaves
                     res.imagen = res.imagen_sugerida or "catalogo_general"
             return res
 
