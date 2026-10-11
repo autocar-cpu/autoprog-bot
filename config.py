@@ -24,6 +24,9 @@ ZONA_HORARIA = "America/Santiago"
 ESPERA_SEGUNDOS = int(os.getenv("ESPERA_SEGUNDOS", "12"))
 # Si Jesús escribió a mano en la conversación en las últimas N horas, el bot no se mete
 SILENCIO_SI_HUMANO_HORAS = float(os.getenv("SILENCIO_SI_HUMANO_HORAS", "6"))
+# Barrido de seguridad: cada N segundos revisa chats sin responder de las últimas N horas
+BARRIDO_SEGUNDOS = int(os.getenv("BARRIDO_SEGUNDOS", "120"))
+BARRIDO_HORAS = float(os.getenv("BARRIDO_HORAS", "12"))
 
 PIPELINES = {
     "BMW MINI": {"id": "wOnfbY9gUlsK5ou6xawJ", "etapas": {
