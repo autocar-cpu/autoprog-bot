@@ -125,15 +125,22 @@ async def pipeline_viajes() -> dict | None:
 
 
 async def mover_a_viajes(contact_id: str, nombre_contacto: str, etapa: str, valor: int | None = None) -> bool:
+    """Deja la oportunidad del cliente en la columna de su ruta. Si Jesús ya la avanzó dentro del pipeline
+    de viajes (Fecha confirmada, Ganado, Perdido), no la devuelve a la columna de ruta: solo actualiza el valor."""
     p = await pipeline_viajes()
     if not p or etapa.lower() not in p["etapas"]:
         return False
     op = await oportunidad_abierta(contact_id)
     cuerpo = {"pipelineId": p["id"], "pipelineStageId": p["etapas"][etapa.lower()]}
+    if op and op.get("pipelineId") == p["id"]:
+        etapas_ruta = {v for k, v in p["etapas"].items() if k.startswith("ruta ")}
+        if op.get("pipelineStageId") not in etapas_ruta:
+            cuerpo = {}
     if valor:
         cuerpo["monetaryValue"] = valor
     if op:
-        await _req("PUT", f"/opportunities/{op['id']}", json=cuerpo)
+        if cuerpo:
+            await _req("PUT", f"/opportunities/{op['id']}", json=cuerpo)
     else:
         cuerpo.update({"locationId": config.GHL_LOCATION_ID, "contactId": contact_id, "status": "open",
                        "name": f"{nombre_contacto or 'Cliente'} - Región"})

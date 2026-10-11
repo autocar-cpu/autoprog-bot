@@ -14,6 +14,13 @@ TAG_RUTA = {
     "B4": "ruta-b4-valpo-interior", "B5": "ruta-b5-centro-sur", "B6": "ruta-b6-sur", "B7": "ruta-b7-sur-lagos",
     "B8": "ruta-b8-atacama", "B9": "ruta-b9-ohiggins", "H1": "ruta-h1-antofagasta", "H2": "ruta-h2-iquique",
     "H3": "ruta-h3-arica", "H4": "ruta-h4-patagonia"}
+# Columna del pipeline VIAJES REGIONES según bloque (creado por Jesús el 11-10-2026)
+ETAPA_RUTA = {
+    "B9": "Ruta O'Higgins",
+    "B2": "Ruta Valparaíso", "B3": "Ruta Valparaíso", "B4": "Ruta Valparaíso",
+    "B5": "Ruta Maule Ñuble Concepción",
+    "B6": "Ruta Sur Temuco Osorno", "B7": "Ruta Sur Temuco Osorno", "H4": "Ruta Sur Temuco Osorno",
+    "B1": "Ruta Norte", "B8": "Ruta Norte", "H1": "Ruta Norte", "H2": "Ruta Norte", "H3": "Ruta Norte"}
 ZONA_RM = {"Zona 1": "Z1-RM Centro", "Zona 2": "Z2-RM Intermedia", "Zona 3": "Z3-RM Periferia"}
 
 _MAULE = {"Talca", "Curicó", "Linares", "Constitución", "Cauquenes", "Molina", "San Javier", "Parral"}
