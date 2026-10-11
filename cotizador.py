@@ -166,6 +166,7 @@ class Cotizacion:
     falta: list[str] = field(default_factory=list)
     motivo: str = ""
     nota_cliente: str = ""      # texto que el bot puede usar tal cual
+    aviso: str = ""             # instrucción obligatoria para el bot (ej. llave con pantalla no compatible)
     imagen_sugerida: str = ""   # lámina del catálogo que corresponde a este auto
     interno: dict = field(default_factory=dict)  # sistema, familia, confianza (no se muestra al cliente)
 
@@ -182,6 +183,16 @@ def _fila(modelo: str | None, serie: str | None, anio: int) -> tuple[dict | None
         if len(familias) == 1:
             return filas[0], f"Serie {serie}"
     return None, modelo or (f"Serie {serie}" if serie else "")
+
+
+def pantalla_compatible(familia: str, sistema: str) -> str:
+    """'si' | 'no' | 'verificar' (año de transición: puede ser Serie F o G)."""
+    if familia not in ("BDC23", "BCP"):
+        return "no"
+    s = sistema.upper()
+    if any(x in s for x in ("FEM", "CAS", "EWS", "O BDC ", "CONECTAR")) or s.endswith("O BDC"):
+        return "verificar"
+    return "si"
 
 
 def cotizar(modelo_texto: str = "", anio: int | None = None, lugar_texto: str = "",
@@ -258,8 +269,22 @@ def cotizar(modelo_texto: str = "", anio: int | None = None, lugar_texto: str = 
                                "al cerrar la programación. Sin costo adicional por traslado.")
         return c
 
-    # --- llave con pantalla
+    # --- llave con pantalla: solo Serie G / U (BDC2, BDC3, BCP). NO en FEM, CAS, EWS ni BDC de Serie F
+    #     (vault: Procedimientos/LCD Display Key compatibilidad BMW).
     if tipo_llave == "pantalla":
+        compat = pantalla_compatible(fam, sistema)
+        if compat == "no":
+            base = cotizar(modelo_texto, anio, lugar_texto, situacion, "", cliente_b2b)
+            base.interno["pantalla_no_compatible"] = True
+            base.aviso = ("La llave con pantalla NO es compatible con este auto (es solo para modelos nuevos). "
+                          "Díselo claro en una frase y ofrécele su llave original con este precio.")
+            return base
+        if compat == "verificar":
+            c.estado = "falta_dato"
+            c.falta.append("foto_llave")
+            c.motivo = ("Según el año, este modelo puede o no aceptar llave con pantalla. Pide una foto de la llave "
+                        "que usa hoy, o que te diga cuál es en la lámina.")
+            return c
         variante = "sin_p" if int(anio) <= 2019 else "con_p"
         if lugar.tipo == "rm":
             c.precio = LCD_RM[variante] + lugar.recargo
