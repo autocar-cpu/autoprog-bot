@@ -121,7 +121,7 @@ async def _transcripcion(ctx: Contexto) -> list[dict]:
               f"Nombre del contacto en WhatsApp: {ctx.nombre or '(sin nombre)'}", "", "Conversación (más antigua arriba):"]
     imagenes = []
     for m in ctx.historial[-40:]:
-        quien = "CLIENTE" if m["rol"] == "cliente" else "TÚ (Jesús)"
+        quien = "CLIENTE" if m["rol"] == "cliente" else "TÚ (Autoprog)"
         txt = (m.get("texto") or "").strip()
         if m.get("imagenes"):
             txt += f" [envió {len(m['imagenes'])} imagen(es)]"

@@ -52,3 +52,10 @@ def test_emoji_rechazado():
 def test_anio_no_es_precio():
     from revisor import revisar
     assert revisar(["Tu X6 del 2019, a las 10:00 del 12-10"], set()) == []
+
+
+def test_no_menciona_nombre_de_jesus():
+    from revisor import revisar
+    assert revisar(["Hola, te escribe Jesús, ingeniero especialista"], set())
+    assert revisar(["Soy Jesus Perdomo"], set())
+    assert revisar(["Hola, te escribo de Autoprog, programación de llaves BMW a domicilio"], set()) == []
