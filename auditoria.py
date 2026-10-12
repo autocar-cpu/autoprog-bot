@@ -418,8 +418,32 @@ async def _ficha(cli: httpx.AsyncClient, c: dict, con_claude: bool = True) -> di
             "jev_tokens": (dj.get("usage") or {}).get("input_tokens", 0), "claude": dc, "transcripcion": trans}
 
 
+def _linea(f: dict) -> str:
+    """Una línea corta por chat: campo=jev/claude (marca * cuando no coinciden)."""
+    m, j, c = f["metricas"], f["jev"], f["claude"] if isinstance(f["claude"], dict) else {}
+    partes = [f"#{f.get('i')}", f"dias={m['dias_desde_ultimo']}", f"ultimo={m['ultimo_habla']}",
+              f"precios={m['precios_dados']}"]
+    for k in ("lugar", "anio", "marca", "modelo", "servicio", "estado", "esperando", "pidio_fotos", "molesto",
+              "intencion", "recuperable"):
+        if k not in j:
+            continue
+        jv, cv = j[k]["v"], c.get(k)
+        if k in ("esperando", "pidio_fotos", "molesto"):
+            igual = (jv >= 0.5) == bool(cv)
+        elif k in ("intencion", "recuperable"):
+            try:
+                igual = abs(float(jv) - float(cv)) <= 1
+            except (TypeError, ValueError):
+                igual = False
+        else:
+            igual = str(jv).strip().lower() == str(cv).strip().lower()
+        partes.append(f"{k}={jv}/{cv}{'' if igual else ' *'}")
+    return " | ".join(partes)
+
+
 @router.get("/piloto/lote")
-async def piloto_lote(k: str, desde: int = 0, n: int = 3, universo: int = 300, semilla: int = 7, texto: int = 1500):
+async def piloto_lote(k: str, desde: int = 0, n: int = 3, universo: int = 300, semilla: int = 7, texto: int = 1500,
+                      compacto: int = 0):
     """Versión sin estado: procesa n chats de una muestra fija y devuelve las fichas en la respuesta."""
     _clave(k)
     convs = await listar_conversaciones(universo)
@@ -435,4 +459,9 @@ async def piloto_lote(k: str, desde: int = 0, n: int = 3, universo: int = 300, s
                     out.append(f)
             except Exception as e:  # noqa: BLE001
                 errores.append(f"{i} {c.get('id')}: {str(e)[:300]}")
+    if compacto:
+        from fastapi.responses import PlainTextResponse
+        tok = sum(f.get("jev_tokens", 0) for f in out)
+        return PlainTextResponse("\n".join([f"instancia={INSTANCIA} tokens_jev={tok}"] + [_linea(f) for f in out]
+                                           + [f"ERROR {e}" for e in errores]))
     return {"instancia": INSTANCIA, "universo_bajado": len(convs), "fichas": out, "errores": errores}
