@@ -286,7 +286,9 @@ async def juez_claude(trans: str, q: dict) -> dict:
     r = await cli.messages.create(model=config.MODELO, max_tokens=800, messages=[{"role": "user", "content": prompt}])
     txt = "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
     m = re.search(r"\{.*\}", txt, re.S)
-    return json.loads(m.group(0)) if m else {}
+    d = json.loads(m.group(0)) if m else {}
+    # a veces anida {"campo": {"respuesta": X}}
+    return {k: (next(iter(v.values()), None) if isinstance(v, dict) and len(v) == 1 else v) for k, v in d.items()}
 
 
 # ------------------------------------------------------------ piloto
@@ -465,3 +467,258 @@ async def piloto_lote(k: str, desde: int = 0, n: int = 3, universo: int = 300, s
         return PlainTextResponse("\n".join([f"instancia={INSTANCIA} tokens_jev={tok}"] + [_linea(f) for f in out]
                                            + [f"ERROR {e}" for e in errores]))
     return {"instancia": INSTANCIA, "universo_bajado": len(convs), "fichas": out, "errores": errores}
+
+
+# ============================================================ revisión del 100 %
+# Corre en segundo plano en el servidor, solo con Jev (sin Claude). Guarda cada chat en un JSONL en disco
+# apenas lo clasifica, así puede retomar si se corta. Nada se escribe en GHL.
+TOTAL = Path(os.getenv("AUDITORIA_DIR", "/tmp")) / "auditoria_total.jsonl"
+_total: dict = {"estado": "sin_iniciar"}
+
+DESCARTE = {"Spam o equivocado", "Lo resolvió con otro", "No lo atendemos", "Trabajo realizado"}
+UMBRAL_NOUL = 0.85   # en el piloto Jev marcaba "sí" con 0,5-0,8 cuando Claude decía "no"
+
+
+def _ajustar_estado(est: str | None, metr: dict) -> str | None:
+    """'Cotizado, no respondió' vs 'en conversación' lo decide el código (quién habló último), no Jev."""
+    if est in ("Cotizado, cliente no respondió", "Cotizado y en conversación"):
+        return "Cotizado y en conversación" if metr["ultimo_habla"] == "cliente" else "Cotizado, cliente no respondió"
+    if est == "Nunca escribió" and metr["mensajes_cliente"] > 1:
+        return "Solo saludó"
+    return est
+
+
+def segmento(f: dict) -> str:
+    """Segmento de ataque, en orden de prioridad."""
+    m, j = f["metricas"], f["jev"]
+    est = f.get("estado_final")
+    v = lambda k: (j.get(k) or {}).get("v")  # noqa: E731
+    if est in DESCARTE or v("marca") not in (None, "BMW", "MINI", "No lo dice"):
+        return "9 Descartar (spam, otra marca, ya resuelto, no lo hacemos)"
+    if est == "Agendado":
+        return "8 Agendado (revisar si se hizo)"
+    if m["cliente_sin_respuesta"]:
+        return "1 Nos escribió y no le respondimos"
+    if est == "Dio datos y no se le cotizó":
+        return "2 Dio datos y no recibió precio"
+    if est == "Cotizado y en conversación":
+        return "3 Cotizado, conversación quedó abierta"
+    if est == "Cotizado, cliente no respondió":
+        return "4 Cotizado, no volvió a escribir"
+    if est == "Rechazó por precio":
+        return "5 Rechazó por precio"
+    if est == "Solo saludó":
+        return "6 Solo saludó (sin datos)"
+    return "7 Nunca escribió (solo mensaje del anuncio)"
+
+
+def _completar(f: dict) -> dict:
+    m, j = f["metricas"], f["jev"]
+    f["estado_final"] = _ajustar_estado((j.get("estado") or {}).get("v"), m)
+    lug = (j.get("lugar") or {}).get("v")
+    if not lug and len(m["candidatos_lugar"]) == 1:
+        lug = m["candidatos_lugar"][0]
+    if lug == "Ninguno de estos":
+        lug = None
+    f["lugar"] = lug
+    r = resolver_lugar(lug) if lug else None
+    f["zona"] = ("RM " + r.zona) if r and r.tipo == "rm" else (r.zona if r and r.tipo == "region" else "Sin dato")
+    f["region"] = bool(r and r.tipo == "region")
+    for k in ("esperando", "pidio_fotos", "molesto"):
+        f[k] = ((j.get(k) or {}).get("v") or 0) >= UMBRAL_NOUL
+    f["segmento"] = segmento(f)
+    return f
+
+
+def _leer_total() -> list[dict]:
+    if not TOTAL.exists():
+        return []
+    out = []
+    for linea in TOTAL.read_text().splitlines():
+        try:
+            out.append(json.loads(linea))
+        except ValueError:
+            pass
+    return out
+
+
+async def _correr_total(maximo: int, paralelo: int):
+    _total.update(estado="listando", inicio=time.time(), hechos=0, vacios=0, errores=[], tokens=0, instancia=INSTANCIA)
+    convs = await listar_conversaciones(maximo)
+    ya = {f["conv"] for f in _leer_total()}
+    pendientes = [c for c in convs if c["id"] not in ya]
+    _total.update(estado="clasificando", total_conversaciones=len(convs), ya_hechos=len(ya), pendientes=len(pendientes))
+    sem = asyncio.Semaphore(paralelo)
+
+    async def uno(cli, c):
+        async with sem:
+            for intento in range(3):
+                try:
+                    f = await _ficha(cli, c, con_claude=False)
+                    break
+                except Exception as e:  # noqa: BLE001
+                    if intento == 2:
+                        _total["errores"].append(f"{c.get('id')}: {str(e)[:200]}")
+                        return
+                    await asyncio.sleep(3 * (intento + 1))
+            if not f:
+                _total["vacios"] += 1
+                return
+            f["telefono"] = c.get("phone")
+            f["ultimo_texto"] = (c.get("lastMessageBody") or "")[:200]
+            f.pop("claude", None)
+            _total["tokens"] += f.get("jev_tokens", 0)
+            with TOTAL.open("a") as fh:
+                fh.write(json.dumps(_completar(f), ensure_ascii=False, default=str) + "\n")
+            _total["hechos"] += 1
+
+    async with httpx.AsyncClient() as cli:
+        await asyncio.gather(*(uno(cli, c) for c in pendientes))
+    _total.update(estado="listo", segundos=round(time.time() - _total["inicio"]))
+
+
+@router.get("/total/iniciar")
+async def total_iniciar(k: str, maximo: int = 50000, paralelo: int = 3, desde_cero: int = 0):
+    _clave(k)
+    if not JEV_KEY:
+        raise HTTPException(400, "Falta la variable JEV_API_KEY")
+    if _total.get("estado") in ("listando", "clasificando"):
+        return {"ya_corriendo": True, **{x: _total.get(x) for x in ("estado", "hechos", "pendientes", "instancia")}}
+    if desde_cero and TOTAL.exists():
+        TOTAL.unlink()
+    t = asyncio.create_task(_correr_total(maximo, max(1, min(paralelo, 6))))
+    _tareas.add(t)
+    t.add_done_callback(_tareas.discard)
+    return {"iniciado": True, "instancia": INSTANCIA}
+
+
+def _conteo(fichas: list[dict], clave) -> list[tuple[str, int]]:
+    d: dict = {}
+    for f in fichas:
+        x = clave(f)
+        d[x] = d.get(x, 0) + 1
+    return sorted(d.items(), key=lambda t: (-t[1], t[0]))
+
+
+@router.get("/total/estado")
+def total_estado(k: str):
+    """Texto corto: avance y conteos por segmento, zona y mes."""
+    _clave(k)
+    from fastapi.responses import PlainTextResponse
+    fichas = [_completar(f) for f in _leer_total()]
+    t = _total
+    seg = t.get("segundos") or (round(time.time() - t["inicio"]) if t.get("inicio") else 0)
+    lin = [f"instancia={INSTANCIA} estado={t.get('estado')} conversaciones={t.get('total_conversaciones')} "
+           f"clasificados_en_disco={len(fichas)} esta_corrida={t.get('hechos')} vacios={t.get('vacios')} "
+           f"errores={len(t.get('errores') or [])} segundos={seg} costo_jev_usd={round((t.get('tokens') or 0) * 0.042 / 1e6, 4)}"]
+    lin += [f"ERROR {e}" for e in (t.get("errores") or [])[:3]]
+    lin.append("SEGMENTOS")
+    lin += [f"  {s}: {n}" for s, n in sorted(_conteo(fichas, lambda f: f["segmento"]))]
+    lin.append("SEGMENTOS 1-5 POR ZONA")
+    lin += [f"  {s}: {n}" for s, n in _conteo([f for f in fichas if f["segmento"][0] in "12345"], lambda f: f["zona"])]
+    lin.append("SEGMENTOS 1-5 POR SERVICIO")
+    lin += [f"  {s}: {n}" for s, n in _conteo([f for f in fichas if f["segmento"][0] in "12345"],
+                                               lambda f: (f["jev"].get("servicio") or {}).get("v"))]
+    lin.append("POR MES DEL ULTIMO MENSAJE (todos / segmentos 1-5)")
+    meses = _conteo(fichas, lambda f: (f["metricas"].get("ultimo_mensaje") or "?")[:7])
+    m15 = dict(_conteo([f for f in fichas if f["segmento"][0] in "12345"], lambda f: (f["metricas"].get("ultimo_mensaje") or "?")[:7]))
+    lin += [f"  {m}: {n} / {m15.get(m, 0)}" for m, n in sorted(meses, reverse=True)]
+    lin.append(f"FLAGS esperando={sum(f['esperando'] for f in fichas)} pidio_fotos={sum(f['pidio_fotos'] for f in fichas)} "
+               f"molesto={sum(f['molesto'] for f in fichas)}")
+    return PlainTextResponse("\n".join(lin))
+
+
+COLUMNAS = ["segmento", "nombre", "telefono", "zona", "lugar", "anio", "marca", "modelo", "servicio", "estado_final",
+            "precios", "ultimo_mensaje", "dias", "ultimo_habla", "intencion", "recuperable", "esperando", "pidio_fotos",
+            "molesto", "link_ghl", "contacto", "conv"]
+
+
+def _fila(f: dict) -> dict:
+    j, m = f["jev"], f["metricas"]
+    v = lambda x: (j.get(x) or {}).get("v")  # noqa: E731
+    return {"segmento": f["segmento"], "nombre": f.get("nombre") or "", "telefono": f.get("telefono") or "",
+            "zona": f["zona"], "lugar": f.get("lugar") or "", "anio": v("anio") if v("anio") != "Ninguno" else "",
+            "marca": v("marca"), "modelo": v("modelo"), "servicio": v("servicio"), "estado_final": f["estado_final"],
+            "precios": " ".join(str(p) for p in m["precios_dados"]), "ultimo_mensaje": m["ultimo_mensaje"],
+            "dias": m["dias_desde_ultimo"], "ultimo_habla": m["ultimo_habla"], "intencion": v("intencion"),
+            "recuperable": v("recuperable"), "esperando": "sí" if f["esperando"] else "",
+            "pidio_fotos": "sí" if f["pidio_fotos"] else "", "molesto": "sí" if f["molesto"] else "",
+            "link_ghl": f"https://app.gohighlevel.com/v2/location/{config.GHL_LOCATION_ID}/conversations/conversations/{f['conv']}",
+            "contacto": f.get("contacto"), "conv": f["conv"]}
+
+
+def _ordenadas(fichas: list[dict]) -> list[dict]:
+    return sorted((_fila(_completar(f)) for f in fichas),
+                  key=lambda r: (r["segmento"], -(r["recuperable"] or 0), r["dias"] if r["dias"] is not None else 9999))
+
+
+@router.get("/total/csv")
+def total_csv(k: str):
+    _clave(k)
+    import csv
+    import io
+    from fastapi.responses import Response
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=COLUMNAS, delimiter=";")
+    w.writeheader()
+    w.writerows(_ordenadas(_leer_total()))
+    return Response("﻿" + buf.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": "attachment; filename=auditoria_whatsapp.csv"})
+
+
+@router.get("/total/lista")
+def total_lista(k: str, seg: str = "1", zona: str = "", n: int = 15, desde: int = 0, texto: int = 0):
+    """Texto corto de un segmento (para que Claude lea muestras y redacte mensajes)."""
+    _clave(k)
+    from fastapi.responses import PlainTextResponse
+    todas = {f["conv"]: f for f in _leer_total()}
+    filas = [r for r in _ordenadas(list(todas.values())) if r["segmento"].startswith(seg)
+             and (not zona or zona.lower() in r["zona"].lower())]
+    lin = [f"total={len(filas)}"]
+    for r in filas[desde:desde + n]:
+        lin.append(f"{r['nombre']} | {r['zona']} {r['lugar']} | {r['modelo']} {r['anio']} | {r['servicio']} | "
+                   f"{r['estado_final']} | precios={r['precios']} | {r['ultimo_mensaje']} ({r['dias']}d, {r['ultimo_habla']}) "
+                   f"| rec={r['recuperable']} | conv={r['conv']}")
+        if texto:
+            lin.append("   " + todas[r["conv"]].get("transcripcion", "")[-texto:].replace("\n", " / "))
+    return PlainTextResponse("\n".join(lin))
+
+
+@router.get("/total/panel")
+def total_panel(k: str):
+    """Página para Jesús: tabla filtrable por segmento y zona, con link al chat en GHL y descarga CSV."""
+    _clave(k)
+    from fastapi.responses import HTMLResponse
+    filas = _ordenadas(_leer_total())
+    datos = json.dumps(filas, ensure_ascii=False, default=str).replace("</", "<\\/")
+    html = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Auditoría WhatsApp</title><style>
+body{font-family:system-ui,sans-serif;margin:16px;background:#fafafa;color:#222}
+h1{font-size:20px;margin:0 0 8px}.f{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+select,input,a.b{padding:8px;font-size:14px;border:1px solid #ccc;border-radius:6px;background:#fff;color:#222;text-decoration:none}
+.c{background:#fff;border:1px solid #e3e3e3;border-radius:8px;padding:10px;margin:8px 0}
+.s{font-size:12px;color:#666}.t{font-weight:600}.chip{display:inline-block;background:#eef;border-radius:10px;padding:1px 8px;font-size:12px;margin-right:4px}
+</style></head><body><h1>Auditoría WhatsApp</h1><div id="r" class="s"></div>
+<div class="f"><select id="seg"></select><select id="zona"></select><input id="q" placeholder="Buscar nombre, comuna, modelo">
+<a class="b" href="csv?k=__K__">Descargar CSV</a></div><div id="l"></div>
+<script>
+const D=__DATOS__;const $=id=>document.getElementById(id);
+function opts(el,vals,todo){el.innerHTML='<option value="">'+todo+'</option>'+vals.map(v=>'<option>'+v+'</option>').join('')}
+const cuenta=(k)=>{const m={};D.forEach(r=>m[r[k]]=(m[r[k]]||0)+1);return m};
+const cs=cuenta('segmento');opts($('seg'),Object.keys(cs).sort().map(s=>s),'Todos los segmentos');
+[...$('seg').options].forEach(o=>{if(o.value)o.text=o.value+' ('+cs[o.value]+')'});
+const cz=cuenta('zona');opts($('zona'),Object.keys(cz).sort(),'Todas las zonas');
+[...$('zona').options].forEach(o=>{if(o.value)o.text=o.value+' ('+cz[o.value]+')'});
+const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function pinta(){const s=$('seg').value,z=$('zona').value,q=$('q').value.toLowerCase();
+const F=D.filter(r=>(!s||r.segmento==s)&&(!z||r.zona==z)&&(!q||JSON.stringify(r).toLowerCase().includes(q)));
+$('r').textContent=F.length+' de '+D.length+' chats';
+$('l').innerHTML=F.slice(0,400).map(r=>'<div class="c"><div class="t">'+esc(r.nombre||'(sin nombre)')+' · '+esc(r.telefono)+'</div>'+
+'<div><span class="chip">'+esc(r.segmento)+'</span><span class="chip">'+esc(r.zona)+(r.lugar?' · '+esc(r.lugar):'')+'</span></div>'+
+'<div>'+esc(r.modelo)+' '+esc(r.anio)+' · '+esc(r.servicio)+' · '+esc(r.estado_final)+(r.precios?' · $'+esc(r.precios):'')+'</div>'+
+'<div class="s">Último: '+esc(r.ultimo_mensaje)+' ('+esc(r.dias)+' días, habló '+esc(r.ultimo_habla)+') · recuperable '+esc(r.recuperable)+
+(r.esperando?' · quedó esperando':'')+(r.pidio_fotos?' · pidió fotos':'')+(r.molesto?' · molesto':'')+'</div>'+
+'<div><a href="'+r.link_ghl+'" target="_blank">Abrir chat en GHL</a></div></div>').join('')+(F.length>400?'<p class="s">Mostrando 400. Filtra para ver más.</p>':'')}
+['seg','zona'].forEach(i=>$(i).onchange=pinta);$('q').oninput=pinta;pinta();
+</script></body></html>"""
+    return HTMLResponse(html.replace("__DATOS__", datos).replace("__K__", k))
