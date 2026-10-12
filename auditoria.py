@@ -722,3 +722,88 @@ $('l').innerHTML=F.slice(0,400).map(r=>'<div class="c"><div class="t">'+esc(r.no
 ['seg','zona'].forEach(i=>$(i).onchange=pinta);$('q').oninput=pinta;pinta();
 </script></body></html>"""
     return HTMLResponse(html.replace("__DATOS__", datos).replace("__K__", k))
+
+
+# ============================================================ envío manual por WhatsApp Web
+# Página con un botón por cliente: abre WhatsApp Web con el mensaje ya escrito y Jesús solo aprieta Enviar.
+# El servidor no envía nada.
+from urllib.parse import quote  # noqa: E402
+
+PRESENTA = "Hola, te escribe Jesús Perdomo, ingeniero especialista en programación de vehículos BMW."
+RUTAS = {"B5": "El jueves 22 y viernes 23 de octubre voy a estar atendiendo a domicilio desde Curicó hasta Concepción"}
+
+
+def _auto(r: dict) -> str:
+    mod = r.get("modelo") or ""
+    if not mod or mod.startswith("No ") or mod.startswith("BMW eléctrico") or mod.startswith("BMW M "):
+        return "tu BMW" if r.get("marca") != "MINI" else "tu MINI"
+    return "tu " + mod
+
+
+def mensaje(r: dict) -> str:
+    bloque = r["zona"] if not r["zona"].startswith("RM") else "RM"
+    ruta = RUTAS.get(bloque)
+    auto = _auto(r)
+    s = r["segmento"][0]
+    if s == "1":
+        base = f"{PRESENTA} Disculpa que no te respondí cuando me escribiste por {auto}."
+        cierre = "Si todavía necesitas la llave dime en qué comuna estás y te paso el valor."
+    elif s == "2":
+        base = f"{PRESENTA} Me pasaste los datos de {auto} y nunca te mandé el valor, disculpa."
+        cierre = "Si sigues necesitando la llave mándame una foto de la que tienes y te cotizo hoy mismo."
+    else:
+        base = f"{PRESENTA} Hace un tiempo te coticé una llave para {auto}."
+        cierre = "Me quedan pocos cupos, ¿te reservo uno?" if ruta else "¿Sigues necesitándola?"
+    if ruta:
+        medio = ruta + (", así no tienes que viajar a Santiago." if s not in "12" else ", con pocos cupos." if s == "1" else ".")
+    elif bloque == "RM":
+        medio = "Atiendo a domicilio en todo Santiago, incluso el mismo día."
+    else:
+        medio = ""
+    return " ".join(x for x in (base, medio, cierre) if x)
+
+
+def _apto(r: dict) -> bool:
+    return (r["segmento"][0] in "12345" and (r["dias"] or 0) >= 3 and r.get("telefono")
+            and r.get("marca") in ("BMW", "MINI", "No lo dice") and r.get("modelo") != "No es BMW ni MINI"
+            and r.get("servicio") != "Otro")
+
+
+@router.get("/total/enviar")
+def total_enviar(k: str, zona: str = "B5", seg: str = "12345", n: int = 300):
+    _clave(k)
+    from fastapi.responses import HTMLResponse
+    filas = [r for r in _ordenadas(_leer_total()) if _apto(r) and r["segmento"][0] in seg
+             and (zona == "RM" and r["zona"].startswith("RM") or zona != "RM" and r["zona"] == zona)][:n]
+    items = []
+    for r in filas:
+        tel = re.sub(r"\D", "", r["telefono"])
+        txt = mensaje(r)
+        items.append({"conv": r["conv"], "nombre": r["nombre"], "tel": r["telefono"], "auto": f"{r['modelo']} {r['anio'] or ''}",
+                      "lugar": r["lugar"], "seg": r["segmento"], "dias": r["dias"], "txt": txt,
+                      "web": f"https://web.whatsapp.com/send?phone={tel}&text={quote(txt)}",
+                      "ghl": r["link_ghl"]})
+    datos = json.dumps(items, ensure_ascii=False).replace("</", "<\\/")
+    html = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Envío WhatsApp</title><style>
+body{font-family:system-ui,sans-serif;margin:16px;background:#f6f6f6;color:#222;max-width:760px}
+h1{font-size:20px;margin:0 0 4px}.s{font-size:13px;color:#666}
+.c{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px;margin:10px 0}.c.ok{opacity:.45}
+.t{font-weight:600}.m{background:#eef7ee;border-radius:6px;padding:8px;margin:8px 0;white-space:pre-wrap;font-size:14px}
+a.b,button{display:inline-block;padding:9px 14px;border-radius:6px;border:0;font-size:14px;cursor:pointer;text-decoration:none;margin-right:6px}
+a.b{background:#1f8f4e;color:#fff}button{background:#e4e4e4;color:#222}a.g{font-size:13px}
+</style></head><body><h1>Envío WhatsApp · __ZONA__</h1><div class="s" id="r"></div><div id="l"></div>
+<script>
+const D=__DATOS__;const KEY='env_'+'__ZONA__';let H={};try{H=JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){}
+const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function guarda(){try{localStorage.setItem(KEY,JSON.stringify(H))}catch(e){}}
+function marca(id){H[id]=!H[id];guarda();pinta()}
+function abre(i){H[D[i].conv]=true;guarda();setTimeout(pinta,500)}
+function pinta(){const n=D.filter(x=>H[x.conv]).length;document.getElementById('r').textContent=n+' de '+D.length+' enviados. Envía de a 15 o 20 por día, con un par de minutos entre cada uno.';
+document.getElementById('l').innerHTML=D.map((x,i)=>'<div class="c'+(H[x.conv]?' ok':'')+'"><div class="t">'+(i+1)+'. '+esc(x.nombre||'(sin nombre)')+' · '+esc(x.tel)+'</div>'+
+'<div class="s">'+esc(x.auto)+' · '+esc(x.lugar)+' · '+esc(x.seg)+' · hace '+esc(x.dias)+' días</div><div class="m">'+esc(x.txt)+'</div>'+
+'<a class="b" href="'+x.web+'" target="wa" onclick="abre('+i+')">Abrir en WhatsApp Web</a><button onclick="marca(\\''+x.conv+'\\')">'+(H[x.conv]?'Desmarcar':'Marcar enviado')+'</button>'+
+'<a class="g" href="'+x.ghl+'" target="_blank">Ver chat</a></div>').join('')}
+pinta();
+</script></body></html>"""
+    return HTMLResponse(html.replace("__DATOS__", datos).replace("__ZONA__", zona))
