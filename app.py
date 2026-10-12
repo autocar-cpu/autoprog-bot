@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 import cerebro
 import config
 import ghl
+import auditoria
 import regiones
 from cotizador import cotizar
 
@@ -26,6 +27,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 log = logging.getLogger("app")
 
 app = FastAPI(title="Autoprog bot")
+app.include_router(auditoria.router)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
 _estado: dict[str, dict] = {}                # contact_id -> {"tarea", "fase": esperando|atendiendo, "repetir"}
