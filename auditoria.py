@@ -17,6 +17,7 @@ import logging
 import os
 import random
 import re
+import socket
 import time
 from pathlib import Path
 
@@ -35,6 +36,8 @@ JEV_KEY = (os.getenv("JEV_API_KEY", "").split() or [""])[0]
 JEV_MODELO = os.getenv("JEV_MODELO", "jev-latest")
 ARCHIVO = Path(os.getenv("AUDITORIA_DIR", "/tmp")) / "auditoria_piloto.json"
 
+INSTANCIA = f"{socket.gethostname()}-{os.getpid()}-{int(time.time())}"
+_tareas: set = set()
 _piloto: dict = {"estado": "sin_iniciar", "fichas": [], "uso_jev_tokens": 0, "errores": []}
 
 TIPOS_FUERA = ("ACTIVITY", "COMMENT", "CALL", "INTERNAL")
@@ -357,15 +360,17 @@ async def piloto_iniciar(k: str, n: int = 30, universo: int = 300, semilla: int 
         raise HTTPException(400, "Falta la variable JEV_API_KEY")
     if _piloto.get("estado") in ("descargando", "clasificando"):
         return {"ya_corriendo": True, "estado": _piloto["estado"], "fichas": len(_piloto["fichas"])}
-    asyncio.create_task(_correr_piloto(n, universo, semilla))
-    return {"iniciado": True, "n": n, "universo": universo}
+    t = asyncio.create_task(_correr_piloto(n, universo, semilla))
+    _tareas.add(t)
+    t.add_done_callback(_tareas.discard)
+    return {"iniciado": True, "n": n, "universo": universo, "instancia": INSTANCIA}
 
 
 @router.get("/piloto/estado")
 def piloto_estado(k: str):
     _clave(k)
     jt = _piloto.get("uso_jev_tokens", 0)
-    return {"estado": _piloto.get("estado"), "fichas": len(_piloto.get("fichas", [])),
+    return {"instancia": INSTANCIA, "estado": _piloto.get("estado"), "fichas": len(_piloto.get("fichas", [])),
             "universo_bajado": _piloto.get("universo_bajado"), "errores": _piloto.get("errores", [])[:5],
             "jev_tokens": jt, "jev_costo_usd": round(jt * 0.042 / 1e6, 4), "segundos": _piloto.get("segundos"),
             "acuerdo_jev_vs_claude": _acuerdo() if _piloto.get("fichas") else None}
@@ -391,3 +396,43 @@ def piloto_diferencias(k: str, campo: str):
         if str(j["v"]).strip().lower() != str(c).strip().lower():
             out.append({"i": i, "jev": j, "claude": c, "candidatos": f["metricas"].get("candidatos_lugar")})
     return out
+
+
+async def _ficha(cli: httpx.AsyncClient, c: dict, con_claude: bool = True) -> dict | None:
+    msgs = await todos_los_mensajes(c["id"])
+    trans, metr = armar(msgs)
+    if metr["mensajes_cliente"] == 0 and metr["mensajes_autoprog"] == 0:
+        return None
+    q = preguntas(metr)
+    t0 = time.time()
+    dj = await jev(cli, trans, q)
+    seg = round(time.time() - t0, 2)
+    dc = {}
+    if con_claude:
+        try:
+            dc = await juez_claude(trans, q)
+        except Exception as e:  # noqa: BLE001
+            dc = {"error": str(e)[:200]}
+    return {"conv": c["id"], "contacto": c.get("contactId"), "nombre": c.get("fullName") or c.get("contactName"),
+            "metricas": metr, "jev": _resumir_jev(dj), "jev_seg": seg,
+            "jev_tokens": (dj.get("usage") or {}).get("input_tokens", 0), "claude": dc, "transcripcion": trans}
+
+
+@router.get("/piloto/lote")
+async def piloto_lote(k: str, desde: int = 0, n: int = 3, universo: int = 300, semilla: int = 7, texto: int = 1500):
+    """Versión sin estado: procesa n chats de una muestra fija y devuelve las fichas en la respuesta."""
+    _clave(k)
+    convs = await listar_conversaciones(universo)
+    random.Random(semilla).shuffle(convs)
+    out, errores = [], []
+    async with httpx.AsyncClient() as cli:
+        for i, c in enumerate(convs[desde:desde + n], start=desde):
+            try:
+                f = await _ficha(cli, c)
+                if f:
+                    f["i"] = i
+                    f["transcripcion"] = f["transcripcion"][-texto:]
+                    out.append(f)
+            except Exception as e:  # noqa: BLE001
+                errores.append(f"{i} {c.get('id')}: {str(e)[:300]}")
+    return {"instancia": INSTANCIA, "universo_bajado": len(convs), "fichas": out, "errores": errores}
