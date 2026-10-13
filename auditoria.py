@@ -807,3 +807,55 @@ document.getElementById('l').innerHTML=D.map((x,i)=>'<div class="c'+(H[x.conv]?'
 pinta();
 </script></body></html>"""
     return HTMLResponse(html.replace("__DATOS__", datos).replace("__ZONA__", zona))
+
+
+# ============================================================ carga a GHL (autorizada por Jesús 13-10-2026)
+# Solo para clientes de REGIONES de los segmentos 1-5: comuna, región, bloque, zona operativa y etiqueta de ruta.
+# No toca contactos que ya tienen la comuna cargada, no mueve oportunidades ni envía mensajes.
+_carga: dict = {"estado": "sin_iniciar"}
+
+
+async def _correr_carga(seg: str, dry: bool):
+    import regiones
+    _carga.update(estado="corriendo", hechos=0, ya_tenian=0, sin_lugar=0, errores=[], muestra=[], inicio=time.time())
+    filas = {f["conv"]: _completar(f) for f in _leer_total()}.values()
+    objetivo = [f for f in filas if f["region"] and f["segmento"][0] in seg and f.get("contacto")]
+    _carga["total"] = len(objetivo)
+    for f in objetivo:
+        try:
+            c = regiones.clasificar(f["lugar"] or "")
+            if not c or c["tipo"] != "region":
+                _carga["sin_lugar"] += 1
+                continue
+            actual = await ghl.contacto(f["contacto"])
+            tiene = any(x.get("id") == config.CAMPOS["comuna"] and x.get("value") for x in actual.get("customFields") or [])
+            etiquetas = [c["etiqueta"], "auditoria-jev"]
+            if len(_carga["muestra"]) < 5:
+                _carga["muestra"].append(f"{f.get('nombre')}: {c['campos']} {etiquetas} ya_tenia_comuna={tiene}")
+            if not dry:
+                if not tiene:
+                    await ghl.actualizar_campos(f["contacto"], {**c["campos"], "comuna_detectada": c["ciudad"]})
+                await ghl.agregar_etiquetas(f["contacto"], etiquetas)
+            _carga["ya_tenian" if tiene else "hechos"] += 1
+            await asyncio.sleep(0.4)
+        except Exception as e:  # noqa: BLE001
+            _carga["errores"].append(f"{f.get('contacto')}: {str(e)[:150]}")
+    _carga.update(estado="listo", segundos=round(time.time() - _carga["inicio"]))
+
+
+@router.get("/total/cargar_ghl")
+async def total_cargar_ghl(k: str, seg: str = "12345", dry: int = 1):
+    _clave(k)
+    if _carga.get("estado") == "corriendo":
+        return {k2: v for k2, v in _carga.items() if k2 != "inicio"}
+    t = asyncio.create_task(_correr_carga(seg, bool(dry)))
+    _tareas.add(t)
+    t.add_done_callback(_tareas.discard)
+    return {"iniciado": True, "dry": bool(dry)}
+
+
+@router.get("/total/cargar_ghl/estado")
+def total_cargar_estado(k: str):
+    _clave(k)
+    return {**{k2: v for k2, v in _carga.items() if k2 not in ("inicio", "errores")},
+            "errores": len(_carga.get("errores") or []), "primeros_errores": (_carga.get("errores") or [])[:3]}
