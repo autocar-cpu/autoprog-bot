@@ -38,7 +38,7 @@ HERRAMIENTAS = [
          "lugar": {"type": "string", "description": "Comuna o ciudad del cliente"},
          "situacion": {"type": "string", "enum": ["duplicado", "akl", "no_sabe"],
                        "description": "duplicado = tiene una llave que funciona; akl = perdió todas"},
-         "tipo_llave": {"type": "string", "enum": ["", "pantalla"], "description": "'pantalla' solo si pide llave con pantalla (8)"},
+         "tipo_llave": {"type": "string", "enum": ["", "pantalla", "bcp"], "description": "'pantalla' si quiere la llave con pantalla (8); 'bcp' si quiere la llave 7 o si la llave que usa hoy es la 7; vacío para razor 6A/6B u otras"},
          "cliente_es_negocio": {"type": "boolean"}},
          "required": ["modelo", "anio", "lugar", "situacion"]}},
     {"name": "horarios_disponibles",
