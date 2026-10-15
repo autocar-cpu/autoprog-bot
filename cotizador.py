@@ -138,9 +138,9 @@ ECU_BAJO_ADMISION = {  # modelo: (año desde, año hasta) donde pudo venir N20/N
     "520": (2011, 2016), "528": (2011, 2016), "X1": (2011, 2015), "X3": (2011, 2017),
     "X4": (2014, 2017), "Z4": (2011, 2016),
 }
-# Llave #7 (BCP, nueva generación) en la RM: precio Zona 1 + recargo de zona. Jesús, 15/10/2026: X6 2026 en
-# Las Condes (Zona 2) = $550.000. Antes la tabla decía $429.000 y el bot ni siquiera la usaba.
-BCP_RM_Z1 = 530000
+# Llave #7 (BCP, nueva generación). Aprobado por Jesús 15/10/2026: precio único en toda la RM (sin recargo
+# de zona) y en regiones según P_BCP del bloque: B9/B2-B4 $550.000, B1/B5 $580.000, B6-B8 $630.000, H $680.000.
+BCP_RM = 490000
 AKL_NO_FACTIBLE = ("BDC3", "BCP")   # no se hace AKL (perfil de Jesús, oct 2026)
 
 # BDC reciente o de gama alta (regla de Jesús, 10/10/2026): no puede costar lo mismo que un auto antiguo.
@@ -312,7 +312,7 @@ def cotizar(modelo_texto: str = "", anio: int | None = None, lugar_texto: str = 
             c.falta.append("foto_llave")
             c.motivo = "Según el año puede o no aceptar la llave #7. Pide una foto de la llave que usa hoy."
             return c
-        c.precio = BCP_RM_Z1 + lugar.recargo if lugar.tipo == "rm" else int(lugar.bloque["P_BCP"])
+        c.precio = BCP_RM if lugar.tipo == "rm" else int(lugar.bloque["P_BCP"])
         c.estado = "cotizar"
         c.interno["llave"] = "bcp"
         c.nota_cliente = "Llave #7 original, la de nueva generación. La programación toma unas 2 horas."
