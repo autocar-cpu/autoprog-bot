@@ -102,3 +102,13 @@ def test_pantalla_si_en_serie_g():
 def test_pantalla_ano_de_transicion_pide_foto():
     c = cotizar("320i", 2019, "Providencia", tipo_llave="pantalla")
     assert c.estado == "falta_dato" and "foto_llave" in c.falta
+
+
+def test_bcp_llave_7():
+    c = cotizar("X6", 2026, "Las Condes", tipo_llave="bcp")
+    assert c.precio == 490000 and c.interno["llave"] == "bcp"
+    assert cotizar("X6", 2026, "Puente Alto", tipo_llave="bcp").precio == 490000
+    assert cotizar("X6", 2026, "Concepción", tipo_llave="bcp").precio == 580000
+    assert cotizar("X6", 2026, "Rancagua", tipo_llave="bcp").precio == 550000
+    assert cotizar("X6", 2026, "Las Condes").precio == 300000   # razor sigue igual
+    assert cotizar("X6", 2015, "Providencia", tipo_llave="bcp").interno.get("bcp_no_compatible")

@@ -169,7 +169,9 @@ async def atender(contact_id: str):
     if not conv:
         _ev(paso="omitido", contacto=contact_id, motivo="sin conversación (GHL no la encuentra aún; el barrido la reintenta)")
         return
-    hist = _historial(await ghl.mensajes(conv))
+    crudos = await ghl.mensajes(conv, 100)
+    hist = _historial(crudos)
+    previas = cerebro.leer_cotizaciones(crudos)
     if not hist or hist[-1]["rol"] != "cliente":
         _ev(paso="omitido", contacto=contact_id, motivo="último mensaje no es del cliente", n=len(hist))
         return
@@ -187,7 +189,7 @@ async def atender(contact_id: str):
 
     nombre = contacto.get("firstName") or contacto.get("contactName") or ""
     for _ in range(3):
-        ctx = cerebro.Contexto(contact_id, nombre, hist, simulacion=False)
+        ctx = cerebro.Contexto(contact_id, nombre, hist, simulacion=False, cotizaciones_previas=previas)
         res = await cerebro.pensar(ctx)
         # ¿El cliente escribió algo más mientras se pensaba? Entonces se vuelve a pensar con todo.
         nuevo = _historial(await ghl.mensajes(conv))

@@ -38,7 +38,7 @@ HERRAMIENTAS = [
          "lugar": {"type": "string", "description": "Comuna o ciudad del cliente"},
          "situacion": {"type": "string", "enum": ["duplicado", "akl", "no_sabe"],
                        "description": "duplicado = tiene una llave que funciona; akl = perdió todas"},
-         "tipo_llave": {"type": "string", "enum": ["", "pantalla"], "description": "'pantalla' solo si pide llave con pantalla (8)"},
+         "tipo_llave": {"type": "string", "enum": ["", "pantalla", "bcp"], "description": "'pantalla' si quiere la llave con pantalla (8); 'bcp' si quiere la llave 7 o si la llave que usa hoy es la 7; vacío para razor 6A/6B u otras"},
          "cliente_es_negocio": {"type": "boolean"}},
          "required": ["modelo", "anio", "lugar", "situacion"]}},
     {"name": "horarios_disponibles",
@@ -95,6 +95,32 @@ class Contexto:
     nombre: str
     historial: list[dict]          # [{"rol": "cliente"|"jesus", "texto", "fecha", "imagenes": [urls]}]
     simulacion: bool = True        # True = no toca GHL (pruebas)
+    cotizaciones_previas: list[dict] = field(default_factory=list)  # [{"clave": [...], "precio": int}] de notas internas
+
+
+# ---------------------------------------------------------------- reglas duras de precio (Jesús, 15/10/2026)
+MAX_AUTOS_POR_CHAT = 2          # más autos distintos = probable competidor o revendedor: se escala
+NOTA_COTIZACION = "[cotizacion] "
+
+
+def clave_cotizacion(args: dict) -> list:
+    from cotizador import normalizar_modelo
+    m = args.get("modelo", "") or ""
+    return [(normalizar_modelo(m) or m).strip().upper(), int(args.get("anio") or 0),
+            args.get("tipo_llave", "") or "", args.get("situacion", "duplicado") or "duplicado"]
+
+
+def leer_cotizaciones(msgs: list[dict]) -> list[dict]:
+    """Cotizaciones que el bot dejó como nota interna en la conversación."""
+    out = []
+    for m in msgs:
+        b = m.get("body") or ""
+        if b.startswith(NOTA_COTIZACION):
+            try:
+                out.append(json.loads(b[len(NOTA_COTIZACION):]))
+            except ValueError:
+                pass
+    return out
 
 
 async def _imagen_base64(url: str) -> dict | None:
@@ -141,13 +167,33 @@ async def _transcripcion(ctx: Contexto) -> list[dict]:
 
 async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, montos: set[int]) -> str:
     if nombre == "cotizar":
+        clave = clave_cotizacion(args)
+        previas = ctx.cotizaciones_previas + [{"clave": a["clave"], "precio": a.get("precio")}
+                                              for a in res.acciones if a.get("clave")]
+        autos = {tuple(p["clave"][:2]) for p in previas} | {tuple(clave[:2])}
+        if len(autos) > MAX_AUTOS_POR_CHAT:
+            res.acciones.append({"cotizar": args, "resultado": "escalar", "motivo": "muchos autos"})
+            return json.dumps({"estado": "escalar", "motivo": (
+                "El cliente está pidiendo precios de muchos autos distintos. No cotices más: usa escalar_a_jesus "
+                "y dile algo corto como 'déjame revisarlo y te confirmo'.")}, ensure_ascii=False)
         c = cotizar(args.get("modelo", ""), args.get("anio"), args.get("lugar", ""),
                     args.get("situacion", "duplicado"), args.get("tipo_llave", ""),
                     bool(args.get("cliente_es_negocio")))
+        # Regla: un precio ya dado nunca baja (ej. cambia de comuna a una zona más barata)
+        antes = max((p.get("precio") or 0 for p in previas if p.get("clave") == clave), default=0)
+        if c.precio and antes > c.precio:
+            c.precio = antes
+            c.precio_max = None
+            c.aviso = (c.aviso + " " if c.aviso else "") + (
+                "Ya le habías dado este precio para la misma llave: se mantiene. No le expliques cálculos de zona.")
         for v in (c.precio, c.precio_max):
             if v:
                 montos.add(v)
-        res.acciones.append({"cotizar": args, "resultado": c.estado, "precio": c.precio, "precio_max": c.precio_max})
+        res.acciones.append({"cotizar": args, "resultado": c.estado, "precio": c.precio, "precio_max": c.precio_max,
+                             "clave": clave})
+        if c.precio and not ctx.simulacion and c.precio > antes:
+            await ghl.nota_interna(ctx.contact_id, NOTA_COTIZACION + json.dumps(
+                {"clave": clave, "precio": c.precio, "lugar": args.get("lugar", "")}, ensure_ascii=False))
         if c.imagen_sugerida:
             res.imagen_sugerida = c.imagen_sugerida
         geo = regiones.clasificar(args.get("lugar", ""))
