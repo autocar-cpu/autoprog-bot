@@ -2,6 +2,10 @@
 Sirve para juntar clientes por zona y planificar viajes (umbral por bloque en data/decodificador.json)."""
 from __future__ import annotations
 
+import datetime as dt
+from zoneinfo import ZoneInfo
+
+import config
 from cotizador import BLOQUES, resolver_lugar
 
 BLOQUE_LABEL = {
@@ -57,3 +61,36 @@ def clasificar(lugar_texto: str) -> dict | None:
             "umbral": fila.get("UMBRAL_PARA_VIAJAR"), "costo_viaje": fila.get("COSTO_VIAJE"),
             "campos": {"comuna": l.nombre, "region": _region(l.nombre, b), "bloque": BLOQUE_LABEL.get(b, ""),
                        "zona_operativa": "No aplica (cliente fuera de RM)"}}
+
+
+# ---------------------------------------------------------------- rutas con fecha (Jesús, 16/10/2026)
+# Cada día lista las ciudades que se atienden. La ruta vence sola: desde el día siguiente a "hasta" el bot
+# vuelve al modo "sin fecha" ("estoy armando ruta, te reservo el cupo").
+_GRAN_CONCE_VIERNES = {"Concepción", "San Pedro de la Paz", "Talcahuano", "Chiguayante", "Hualpén", "Penco", "Coronel"}
+FECHAS_RUTA = {
+    "B5": {"hasta": dt.date(2026, 10, 24), "dias": [
+        {"fecha": dt.date(2026, 10, 22), "texto": "jueves 22 de octubre", "ciudades": _MAULE | _NUBLE | {"Chillán Viejo"}},
+        {"fecha": dt.date(2026, 10, 23), "texto": "viernes 23 de octubre", "ciudades": _GRAN_CONCE_VIERNES},
+        {"fecha": dt.date(2026, 10, 24), "texto": "sábado 24 de octubre", "ciudades": None, "cupos_limitados": True},
+    ]},
+}
+
+
+def fecha_ruta(ciudad: str, bloque: str, hoy: dt.date | None = None) -> dict | None:
+    """Día de la ruta que le toca a esa ciudad: {'dia', 'fecha', 'alternativa'} o None si la ruta no tiene fecha
+    vigente. 'ciudades': None = resto del bloque (sábado en Gran Concepción, cupos limitados)."""
+    r = FECHAS_RUTA.get(bloque)
+    hoy = hoy or dt.datetime.now(ZoneInfo(config.ZONA_HORARIA)).date()
+    if not r or hoy > r["hasta"]:
+        return None
+    vigentes = [d for d in r["dias"] if d["fecha"] >= hoy]
+    propio = next((d for d in vigentes if d["ciudades"] and ciudad in d["ciudades"]), None)
+    resto = next((d for d in vigentes if d["ciudades"] is None), None)
+    nombrada = any(ciudad in (d["ciudades"] or ()) for d in r["dias"])
+    dia = propio or (resto if (not nombrada or ciudad in _GRAN_CONCE_VIERNES) else None)
+    if not dia:
+        return None
+    alt = resto if (dia is not resto and ciudad in _GRAN_CONCE_VIERNES and resto) else None
+    return {"dia": dia["texto"], "fecha": dia["fecha"].isoformat(),
+            "cupos_limitados": bool(dia.get("cupos_limitados")),
+            "alternativa": (alt["texto"] + " (cupos limitados)") if alt else ""}

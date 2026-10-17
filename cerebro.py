@@ -57,9 +57,13 @@ HERRAMIENTAS = [
          "marca": {"type": "string"}, "modelo": {"type": "string"}, "anio": {"type": "integer"},
          "comuna": {"type": "string"}, "llave_actual": {"type": "string"}, "llave_deseada": {"type": "string"}}}},
     {"name": "reservar_cupo",
-     "description": "Cliente de regiones que aceptó el precio y quiere que le reserves cupo en la próxima ruta a su zona.",
+     "description": "Cliente de regiones que aceptó el precio y quiere que le reserves cupo en la ruta a su zona. "
+                    "Si la ruta ya tiene fecha y el cliente aceptó la visita ese día, pon acepto_fecha=true.",
      "input_schema": {"type": "object", "properties": {
-         "resumen": {"type": "string", "description": "Muy corto: vehículo, ciudad, servicio, precio aceptado"}},
+         "resumen": {"type": "string", "description": "Muy corto: vehículo, ciudad, servicio, precio aceptado"},
+         "acepto_fecha": {"type": "boolean", "description": "true solo si el cliente dijo que sí al día de la ruta"},
+         "dia": {"type": "string", "description": "El día que aceptó, tal como vino en ruta.dia (ej. 'jueves 22 de octubre')"},
+         "horario": {"type": "string", "description": "Horario que eligió el cliente, si ya lo dijo"}},
          "required": ["resumen"]}},
     {"name": "escalar_a_jesus",
      "description": "Pasa el caso a Jesús (tarea en el CRM) y el bot deja de responder a este contacto. Incluye el mensaje para el cliente.",
@@ -200,6 +204,12 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
         if geo:
             res.region = geo
         d = c.dict()
+        ruta = regiones.fecha_ruta(geo["ciudad"], geo["bloque"]) if geo and geo["tipo"] == "region" else None
+        if ruta:
+            d["ruta"] = ruta
+            d["nota_cliente"] = ("Precio a domicilio en su ciudad, incluye el traslado. Ofrece el " + ruta["dia"] +
+                                 (" o, si no puede, el " + ruta["alternativa"] if ruta["alternativa"] else "") +
+                                 " y pregunta si le acomoda la visita ese día; el cliente elige el horario.")
         d.pop("interno", None)   # el sistema IMMO no se le pasa a la IA para que no lo repita al cliente
         return json.dumps(d, ensure_ascii=False)
 
@@ -224,7 +234,12 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
     if nombre == "reservar_cupo":
         res.acciones.append({"reservar_cupo": args})
         if not ctx.simulacion:
-            await ghl.nota_interna(ctx.contact_id, "Cupo reservado en ruta: " + args.get("resumen", ""))
+            extra = f" | Fecha: {args.get('dia', '')} {args.get('horario', '')}".rstrip() if args.get("acepto_fecha") else ""
+            await ghl.nota_interna(ctx.contact_id, "Cupo reservado en ruta: " + args.get("resumen", "") + extra)
+        if args.get("acepto_fecha"):
+            if args.get("horario"):
+                return "Fecha confirmada. Confírmale el día y el horario en un mensaje corto."
+            return "Fecha confirmada. Pregúntale qué horario le acomoda ese día (que él elija; no propongas hora)."
         return "Cupo reservado. Dile que apenas confirmes la fecha de la ruta le avisas."
 
     if nombre == "guardar_datos":

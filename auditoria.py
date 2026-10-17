@@ -20,6 +20,7 @@ import re
 import socket
 import time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -730,7 +731,8 @@ $('l').innerHTML=F.slice(0,400).map(r=>'<div class="c"><div class="t">'+esc(r.no
 from urllib.parse import quote  # noqa: E402
 
 PRESENTA = "Hola, te escribe Jesús Perdomo, ingeniero especialista en programación de vehículos BMW."
-RUTAS = {"B5": "El jueves 22 y viernes 23 de octubre voy a estar atendiendo a domicilio desde Curicó hasta Concepción"}
+RUTAS = {"B5": "El jueves 22, viernes 23 y sábado 24 de octubre voy a estar atendiendo a domicilio desde Curicó hasta Concepción"}
+RUTAS_HASTA = {"B5": dt.date(2026, 10, 24)}   # desde el día siguiente el texto deja de usarse
 
 
 def _auto(r: dict) -> str:
@@ -742,7 +744,8 @@ def _auto(r: dict) -> str:
 
 def mensaje(r: dict) -> str:
     bloque = r["zona"] if not r["zona"].startswith("RM") else "RM"
-    ruta = RUTAS.get(bloque)
+    hoy = dt.datetime.now(ZoneInfo(config.ZONA_HORARIA)).date()
+    ruta = RUTAS.get(bloque) if hoy <= RUTAS_HASTA.get(bloque, dt.date.max) else None
     auto = _auto(r)
     s = r["segmento"][0]
     if s == "1":
