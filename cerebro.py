@@ -14,6 +14,7 @@ import anthropic
 import config
 import ghl
 from cotizador import cotizar
+import motos
 from prompt import SISTEMA
 import regiones
 from revisor import revisar
@@ -65,6 +66,17 @@ HERRAMIENTAS = [
          "dia": {"type": "string", "description": "El día que aceptó, tal como vino en ruta.dia (ej. 'jueves 22 de octubre')"},
          "horario": {"type": "string", "description": "Horario que eligió el cliente, si ya lo dijo"}},
          "required": ["resumen"]}},
+    {"name": "cotizar_moto",
+     "description": "Precio del duplicado de llave keyless de moto BMW GS. Única fuente de precios para motos.",
+     "input_schema": {"type": "object", "properties": {
+         "modelo": {"type": "string", "description": "Como lo dijo el cliente, ej. 'R 1250 GS Adventure', 'GS 1200'"},
+         "anio": {"type": "integer"},
+         "lugar": {"type": "string", "description": "Comuna o ciudad"},
+         "arranque": {"type": "string", "enum": ["boton", "llave", "no_sabe"],
+                      "description": "boton = arranca con botón y la llave en el bolsillo; llave = gira una llave en la chapa"},
+         "situacion": {"type": "string", "enum": ["duplicado", "akl", "no_sabe"],
+                       "description": "duplicado = tiene una llave que funciona; akl = perdió todas"}},
+         "required": []}},
     {"name": "escalar_a_jesus",
      "description": "Pasa el caso a Jesús (tarea en el CRM) y el bot deja de responder a este contacto. Incluye el mensaje para el cliente.",
      "input_schema": {"type": "object", "properties": {
@@ -242,6 +254,14 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
             return "Fecha confirmada. Pregúntale qué horario le acomoda ese día (que él elija; no propongas hora)."
         return "Cupo reservado. Dile que apenas confirmes la fecha de la ruta le avisas."
 
+    if nombre == "cotizar_moto":
+        r = motos.cotizar_moto(args.get("modelo", ""), args.get("anio"), args.get("lugar", ""),
+                               args.get("arranque", ""), args.get("situacion", "duplicado"))
+        if r.get("precio"):
+            montos.add(r["precio"])
+        res.acciones.append({"cotizar_moto": args, "resultado": r["estado"], "precio": r.get("precio")})
+        return json.dumps(r, ensure_ascii=False)
+
     if nombre == "guardar_datos":
         res.acciones.append({"guardar_datos": args})
         geo = regiones.clasificar(args.get("comuna") or "")
@@ -285,6 +305,7 @@ async def pensar(ctx: Contexto, modelo_forzado: str | None = None) -> Resultado:
     sistema = [{"type": "text", "text": SISTEMA, "cache_control": {"type": "ephemeral"}}]
     modelo = modelo_forzado or config.MODELO
     reintentos_revisor = 0
+    moto = motos.es_moto([m.get("texto", "") for m in ctx.historial if m["rol"] == "cliente"])
 
     for _ in range(10):
         r = await _claude().messages.create(model=modelo, max_tokens=1500, system=sistema,
@@ -311,7 +332,7 @@ async def pensar(ctx: Contexto, modelo_forzado: str | None = None) -> Resultado:
 
         if final:
             msgs = [m.strip() for m in final.input.get("mensajes", []) if m and m.strip()]
-            problemas = revisar(msgs, montos)
+            problemas = revisar(msgs, montos, permitir_presentacion=moto)
             if final.name == "enviar_respuesta" and any(PROMETE_DESPUES.search(x) for x in msgs) \
                     and not final.input.get("imagen"):
                 problemas.append("No prometas mandar fotos después ni desde otro teléfono: tú mandas la imagen AHORA "
@@ -333,9 +354,11 @@ async def pensar(ctx: Contexto, modelo_forzado: str | None = None) -> Resultado:
                 res.escalado = {"motivo": final.input.get("motivo", ""), "resumen": final.input.get("resumen", "")}
             else:
                 res.imagen = final.input.get("imagen") or ""
-                if not res.imagen and _pide_fotos(ctx):   # el cliente pidió fotos: se mandan sí o sí
+                if moto:   # las láminas son de llaves de auto: a un cliente de moto no se le mandan
+                    res.imagen = ""
+                elif not res.imagen and _pide_fotos(ctx):   # el cliente pidió fotos: se mandan sí o sí
                     res.imagen = res.imagen_sugerida or "catalogo_general"
-                if not res.imagen and res.mensajes and _primer_contacto(ctx):
+                if not moto and not res.imagen and res.mensajes and _primer_contacto(ctx):
                     # Protocolo de primer contacto: la primera respuesta siempre lleva la lámina de llaves
                     res.imagen = res.imagen_sugerida or "catalogo_general"
             return res
