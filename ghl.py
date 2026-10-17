@@ -124,7 +124,8 @@ async def pipeline_viajes() -> dict | None:
     return None
 
 
-async def mover_a_viajes(contact_id: str, nombre_contacto: str, etapa: str, valor: int | None = None) -> bool:
+async def mover_a_viajes(contact_id: str, nombre_contacto: str, etapa: str, valor: int | None = None,
+                         forzar: bool = False) -> bool:
     """Deja la oportunidad del cliente en la columna de su ruta. Si Jesús ya la avanzó dentro del pipeline
     de viajes (Fecha confirmada, Ganado, Perdido), no la devuelve a la columna de ruta: solo actualiza el valor."""
     p = await pipeline_viajes()
@@ -134,7 +135,7 @@ async def mover_a_viajes(contact_id: str, nombre_contacto: str, etapa: str, valo
     cuerpo = {"pipelineId": p["id"], "pipelineStageId": p["etapas"][etapa.lower()]}
     if op and op.get("pipelineId") == p["id"]:
         etapas_ruta = {v for k, v in p["etapas"].items() if k.startswith("ruta ")}
-        if op.get("pipelineStageId") not in etapas_ruta:
+        if op.get("pipelineStageId") not in etapas_ruta and not forzar:
             cuerpo = {}
     if valor:
         cuerpo["monetaryValue"] = valor

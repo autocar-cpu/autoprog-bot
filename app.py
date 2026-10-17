@@ -291,13 +291,16 @@ async def _aplicar(contact_id: str, nombre: str, res: cerebro.Resultado, conv: s
     precios = [a for a in res.acciones if a.get("precio")]
     agendo = any("agendar" in a for a in res.acciones)
     cupo = any("reservar_cupo" in a for a in res.acciones)
+    fecha_ok = any(a.get("reservar_cupo", {}).get("acepto_fecha") for a in res.acciones)
     en_region = bool(res.region and res.region.get("tipo") == "region")
     if en_region and not res.escalado:
         # Cliente de regiones: va a la columna de su ruta en VIAJES REGIONES, con el precio si ya lo tiene.
         valor = precios[-1]["precio"] if precios else None
         etapa = regiones.ETAPA_RUTA.get(res.region.get("bloque", ""), "")
         try:
-            movido = bool(etapa) and await ghl.mover_a_viajes(contact_id, nombre, etapa, valor)
+            if fecha_ok:
+                etapa = "Fecha confirmada"
+            movido = bool(etapa) and await ghl.mover_a_viajes(contact_id, nombre, etapa, valor, forzar=fecha_ok)
             if cupo:
                 await ghl.agregar_etiquetas(contact_id, ["cupo-reservado"])
         except Exception:
