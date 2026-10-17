@@ -19,7 +19,10 @@ def _valor(txt: str) -> int | None:
     return int(n) if n else None
 
 
-def revisar(mensajes: list[str], montos_permitidos: set[int]) -> list[str]:
+_PRESENTACION = re.compile(r"te escribe jes[uú]s(,)? ingeniero", re.I)
+
+
+def revisar(mensajes: list[str], montos_permitidos: set[int], permitir_presentacion: bool = False) -> list[str]:
     """Devuelve la lista de problemas (vacía = se puede enviar)."""
     problemas = []
     texto = "\n".join(mensajes)
@@ -34,7 +37,7 @@ def revisar(mensajes: list[str], montos_permitidos: set[int]) -> list[str]:
             problemas.append(f"El monto {m.strip()} no salió del cotizador en esta respuesta. Llama cotizar o quítalo.")
     if _SE_CONFIRMA.search(texto):
         problemas.append("No digas que el precio o la llave se confirma al revisar el auto ni que es referencial: el precio que das es el precio. Quita esa frase.")
-    if _NOMBRE.search(texto):
+    if _NOMBRE.search(_PRESENTACION.sub(" ", texto) if permitir_presentacion else texto):
         problemas.append("No menciones el nombre de Jesús ni de ninguna persona: habla como Autoprog.")
     if _EMOJI.search(texto):
         problemas.append("Hay emojis. Quítalos.")
