@@ -251,7 +251,7 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
         if args.get("acepto_fecha"):
             if args.get("horario"):
                 return "Fecha confirmada. Confírmale el día y el horario en un mensaje corto."
-            return "Fecha confirmada. Pregúntale qué horario le acomoda ese día (que él elija; no propongas hora)."
+            return "Fecha confirmada. Pregúntale cuándo le viene bien ese día (que él lo proponga; no sugieras hora)."
         return "Cupo reservado. Dile que apenas confirmes la fecha de la ruta le avisas."
 
     if nombre == "cotizar_moto":
@@ -260,6 +260,10 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
         if r.get("precio"):
             montos.add(r["precio"])
         res.acciones.append({"cotizar_moto": args, "resultado": r["estado"], "precio": r.get("precio")})
+        if r["estado"] == "lista_espera" and not ctx.simulacion:
+            await ghl.agregar_etiquetas(ctx.contact_id, [r["etiqueta"]])
+            await ghl.nota_interna(ctx.contact_id, "Lista de espera moto: " + r["motivo"].split(".")[0] + ". "
+                                   + " ".join(str(args.get(k, "")) for k in ("modelo", "anio", "lugar")))
         return json.dumps(r, ensure_ascii=False)
 
     if nombre == "guardar_datos":
