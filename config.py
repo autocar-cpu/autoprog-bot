@@ -9,6 +9,7 @@ MODELO_DIFICIL = os.getenv("MODELO_DIFICIL", "claude-opus-5-5")  # reintento si 
 GHL_TOKEN = (os.getenv("GHL_TOKEN", "").split() or [""])[0]
 GHL_LOCATION_ID = os.getenv("GHL_LOCATION_ID", "GQTHBIr92oupzd54Ui7X")
 GHL_CALENDARIO_ID = os.getenv("GHL_CALENDARIO_ID", "EjeX9T2HQO3sriUhsA8R")  # "Servicio a domicilio Autoprog"
+CONTACTO_PRUEBA = os.getenv("CONTACTO_PRUEBA", "")  # contacto de prueba para /diag_agenda?crear=1 (vacío = no crea)
 GHL_USUARIO_JESUS = os.getenv("GHL_USUARIO_JESUS", "wxVhUI6b9Gf5xYTtKroz")
 
 # Clave compartida para que solo GHL pueda llamar al webhook (se pone igual en el workflow de GHL)
