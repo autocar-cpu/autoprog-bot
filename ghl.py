@@ -93,6 +93,15 @@ async def oportunidad_abierta(contact_id: str) -> dict | None:
     return ops[0] if ops else None
 
 
+async def pipeline_de_oportunidad(contact_id: str) -> str:
+    """Nombre (en config.PIPELINES) del pipeline de la oportunidad abierta; 'BMW MINI' si no se sabe."""
+    op = await oportunidad_abierta(contact_id)
+    for nombre, p in config.PIPELINES.items():
+        if op and op.get("pipelineId") == p["id"]:
+            return nombre
+    return "BMW MINI"
+
+
 async def mover_oportunidad(contact_id: str, nombre_contacto: str, pipeline: str, etapa: str,
                             valor: int | None = None) -> None:
     p = config.PIPELINES[pipeline]
@@ -159,14 +168,25 @@ async def horarios_libres(dias: int = 4) -> dict[str, list[str]]:
     return {k: v.get("slots", []) for k, v in d.items() if isinstance(v, dict) and "slots" in v}
 
 
+citas_bot: set[str] = set()   # ids de citas que creó el bot (las confirma el propio bot en el chat)
+
+
 async def agendar(contact_id: str, inicio_iso: str, direccion: str, titulo: str, notas: str) -> dict:
     inicio = dt.datetime.fromisoformat(inicio_iso)
     fin = inicio + dt.timedelta(hours=3)
-    return await _req("POST", "/calendars/events/appointments", json={
+    d = await _crear_cita({
         "calendarId": config.GHL_CALENDARIO_ID, "locationId": config.GHL_LOCATION_ID,
         "contactId": contact_id, "startTime": inicio.isoformat(), "endTime": fin.isoformat(),
         "title": titulo, "address": direccion, "appointmentStatus": "confirmed",
         "assignedUserId": config.GHL_USUARIO_JESUS, "notes": notas, "toNotify": False})
+    cid = (d or {}).get("id") or ((d or {}).get("appointment") or {}).get("id")
+    if cid:
+        citas_bot.add(cid)
+    return d
+
+
+async def _crear_cita(cuerpo: dict) -> dict:
+    return await _req("POST", "/calendars/events/appointments", json=cuerpo)
 
 
 def _dt(x: str) -> dt.datetime:
@@ -202,7 +222,8 @@ async def citas_futuras(contact_id: str) -> list[dict]:
             ini = ini.replace(tzinfo=ZoneInfo(config.ZONA_HORARIA))
         if ini > ahora:
             out.append({"id": e.get("id"), "inicio": ini.isoformat(), "direccion": e.get("address") or "",
-                        "titulo": e.get("title") or ""})
+                        "titulo": e.get("title") or "",
+                        "creada_por": ((e.get("createdBy") or {}).get("source") or "")})
     return sorted(out, key=lambda c: c["inicio"])
 
 
