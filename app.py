@@ -123,6 +123,9 @@ async def _ciclo(contact_id: str, e: dict, espera: float):
             _estado.pop(contact_id, None)
 
 
+_forzar: set[str] = set()  # contactos que Jesús pidió atender aunque haya escrito a mano
+
+
 async def _esperar_y_atender(contact_id: str):
     """Compatibilidad: atender ya (lo usa /reintentar)."""
     _disparar(contact_id, 0, "manual")
@@ -183,7 +186,9 @@ async def atender(contact_id: str):
         return
     # ¿Jesús escribió a mano hace poco? Entonces no se mete.
     limite = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=config.SILENCIO_SI_HUMANO_HORAS)
-    for m in hist:
+    forzado = contact_id in _forzar
+    _forzar.discard(contact_id)
+    for m in ([] if forzado else hist):
         if m["rol"] == "jesus" and m["id"] not in _enviados_bot and m["dateAdded"] \
                 and not m.get("api") and not _es_bot_viejo(m.get("texto", "")):
             if dt.datetime.fromisoformat(m["dateAdded"].replace("Z", "+00:00")) > limite:
@@ -469,11 +474,14 @@ def diag(k: str, n: int = 30):
 
 
 @app.get("/reintentar")
-async def reintentar(k: str, contacto: str):
-    """Fuerza que el bot atienda ahora a un contacto (para recuperar un mensaje que falló)."""
+async def reintentar(k: str, contacto: str, forzar: int = 0):
+    """Fuerza que el bot atienda ahora a un contacto (para recuperar un mensaje que falló).
+    forzar=1: además ignora que Jesús haya escrito a mano hace poco (una sola vez)."""
     if not _clave_ok(k):
         raise HTTPException(401)
-    _ev(paso="reintento manual", contacto=contacto)
+    if forzar:
+        _forzar.add(contacto)
+    _ev(paso="reintento manual", contacto=contacto, forzar=bool(forzar))
     asyncio.create_task(_esperar_y_atender(contacto))
     return {"ok": True}
 
