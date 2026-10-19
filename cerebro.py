@@ -236,12 +236,29 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
         return json.dumps(await ghl.horarios_libres(), ensure_ascii=False)
 
     if nombre == "agendar":
-        res.acciones.append({"agendar": args})
-        if not ctx.simulacion:
-            await ghl.agendar(ctx.contact_id, args["inicio"], args["direccion"],
-                              f"Llave - {ctx.nombre}", args["resumen"])
+        if ctx.simulacion:
+            res.acciones.append({"agendar": args, "agendar_ok": True})
+            return "Cita creada (simulación). Ahora sí confirma día, hora y dirección en un mensaje corto."
+        libre, cercanos = await ghl.revisar_hora(args["inicio"])
+        if not libre:
+            res.acciones.append({"agendar": args, "agendar_ok": False, "motivo": "hora no libre"})
+            return json.dumps({"cita_creada": False, "motivo": "Esa hora no está libre en el calendario.",
+                               "horas_libres_mas_cercanas": cercanos,
+                               "instruccion": "No confirmes esa hora. Ofrece al tiro estas horas libres y pregunta cuál le sirve."},
+                              ensure_ascii=False)
+        try:
+            cita = await ghl.agendar(ctx.contact_id, args["inicio"], args["direccion"],
+                                     f"Llave - {ctx.nombre}", args["resumen"])
+        except Exception as e:  # noqa: BLE001
+            res.acciones.append({"agendar": args, "agendar_ok": False, "motivo": str(e)[:200]})
+            return ("ERROR TÉCNICO: no se pudo crear la cita en el calendario. No confirmes la hora ni digas que "
+                    "lo dejas en la agenda. Usa escalar_a_jesus con motivo 'falla técnica de agenda'.")
+        res.acciones.append({"agendar": args, "agendar_ok": True, "cita": (cita or {}).get("id")})
+        try:
             await ghl.mover_oportunidad(ctx.contact_id, ctx.nombre, "BMW MINI", "Agendado")
-        return "Cita creada."
+        except Exception:  # noqa: BLE001
+            log.exception("no se pudo mover a Agendado")
+        return "Cita creada en el calendario. Ahora sí confirma día, hora y dirección en un mensaje corto."
 
     if nombre == "reservar_cupo":
         res.acciones.append({"reservar_cupo": args})
@@ -285,6 +302,9 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
     return "Herramienta desconocida."
 
 
+CONFIRMA_CITA = re.compile(r"(quedas? (agendad|reservad|confirmad)|qued[oó] (agendad|confirmad|reservad)|te (espero|veo) (hoy|mañana|el)|"
+                           r"nos vemos (hoy|mañana|el)|visita (agendada|confirmada)|cita (agendada|confirmada)|"
+                           r"(hoy|mañana) a las \d{1,2}(:\d{2})? se puede)", re.I)
 PIDE_FOTOS = re.compile(r"\b(foto|fotos|imagen|imagenes|imágenes|lámina|lamina|catálogo|catalogo|modelos de llave|ver (las )?llaves)\b", re.I)
 PROMETE_DESPUES = re.compile(r"(te (las?|lo) (mando|envío|envio|paso)|desde mi celular|en unos minutos|más rato|mas rato|te mando (las )?fotos)", re.I)
 
@@ -337,6 +357,9 @@ async def pensar(ctx: Contexto, modelo_forzado: str | None = None) -> Resultado:
         if final:
             msgs = [m.strip() for m in final.input.get("mensajes", []) if m and m.strip()]
             problemas = revisar(msgs, montos, permitir_presentacion=moto)
+            if CONFIRMA_CITA.search(" ".join(msgs)) and not any(a.get("agendar_ok") for a in res.acciones):
+                problemas.append("No confirmes una visita ni una hora si agendar no devolvió 'Cita creada'. "
+                                 "Usa horarios_disponibles, ofrece horas libres y llama agendar.")
             if final.name == "enviar_respuesta" and any(PROMETE_DESPUES.search(x) for x in msgs) \
                     and not final.input.get("imagen"):
                 problemas.append("No prometas mandar fotos después ni desde otro teléfono: tú mandas la imagen AHORA "

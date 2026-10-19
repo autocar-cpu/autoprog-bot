@@ -169,6 +169,24 @@ async def agendar(contact_id: str, inicio_iso: str, direccion: str, titulo: str,
         "assignedUserId": config.GHL_USUARIO_JESUS, "notes": notas, "toNotify": True})
 
 
+def _dt(x: str) -> dt.datetime:
+    return dt.datetime.fromisoformat(x.replace("Z", "+00:00"))
+
+
+async def revisar_hora(inicio_iso: str) -> tuple[bool, list[str]]:
+    """¿Está libre esa hora en el calendario? Si no, devuelve las 2 horas libres más cercanas."""
+    pedido = _dt(inicio_iso)
+    libres = [x for v in (await horarios_libres(dias=8)).values() for x in v]
+    if any(_dt(x) == pedido for x in libres):
+        return True, []
+    cercanos = sorted(libres, key=lambda x: abs((_dt(x) - pedido).total_seconds()))[:2]
+    return False, sorted(cercanos)
+
+
+async def borrar_cita(event_id: str) -> None:
+    await _req("DELETE", f"/calendars/events/{event_id}")
+
+
 # ------------------------------------------------------------ imágenes del catálogo
 _urls_media: dict[str, str] = {}
 ultimo_error_media = ""

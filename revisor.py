@@ -7,6 +7,8 @@ _EMOJI = re.compile("[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F000-\U000
 _LISTA = re.compile(r"^\s*(?:[-•*·]|\d+[\.\)])\s+", re.M)
 _SE_CONFIRMA = re.compile(r"(valor|precio|monto|llave)[^.\n]{0,40}se confirma|se confirma al (revisar|ver|identificar)|valor referencial|precio referencial|precio final", re.I)
 _NOMBRE = re.compile(r"\bjes[uú]s\b|\bperdomo\b", re.I)
+_DESPUES_AGENDA = re.compile(r"(te (lo )?confirmo (despu[eé]s|luego|m[aá]s tarde|en un (rato|momento))|"
+                             r"d[eé]jame dej(ar|arlo|ar confirmad)[^.]{0,40}agenda|te aviso (por ac[aá] )?en un (momento|rato))", re.I)
 _HORA_ACOMODA = re.compile(r"(a\s+)?qu[eé]\s+hora\s+te\s+acomoda", re.I)
 _FECHA = re.compile(r"\b\d{1,2}[\./-]\d{1,2}(?:[\./-]\d{2,4})?\b")
 
@@ -40,6 +42,8 @@ def revisar(mensajes: list[str], montos_permitidos: set[int], permitir_presentac
         problemas.append("No digas que el precio o la llave se confirma al revisar el auto ni que es referencial: el precio que das es el precio. Quita esa frase.")
     if _NOMBRE.search(_PRESENTACION.sub(" ", texto) if permitir_presentacion else texto):
         problemas.append("No menciones el nombre de Jesús ni de ninguna persona: habla como Autoprog.")
+    if _DESPUES_AGENDA.search(texto):
+        problemas.append("Prohibido 'te confirmo después' o 'déjame dejarlo en la agenda': agenda ahora con agendar u ofrece horas libres.")
     if _HORA_ACOMODA.search(texto):
         problemas.append("No preguntes 'a qué hora te acomoda' ni propongas hora: pregunta si le gustaría la visita y que el cliente diga cuándo le viene bien.")
     if _EMOJI.search(texto):
