@@ -13,8 +13,7 @@ def test_escala():
     assert r["estado"] == "lista_espera" and r["etiqueta"] == "espera_moto_bmw" and "precio" not in r
     r = cotizar_moto("R 1250 GS", 2021, "Las Condes", "boton", "akl")
     assert r["estado"] == "lista_espera" and "precio" not in r
-    assert cotizar_moto("F 850 GS", 2021, "Las Condes", "boton")["estado"] == "escalar"
-    assert cotizar_moto("R 1200 GS", 2012, "Las Condes", "boton")["estado"] == "escalar"
+    assert cotizar_moto("R 1250 GS", 2021, "Concepción", "boton")["estado"] == "escalar"   # fuera de Santiago
     assert cotizar_moto("R 1250 GS", 2024, "Las Condes", "boton")["estado"] == "escalar"
     r = cotizar_moto("R 1250 GS", 2021, "Concepción", "boton")
     assert r["estado"] == "escalar" and "precio" not in r
@@ -38,17 +37,16 @@ def test_revisor_hora():
     assert not revisar(["te gustaria la visita? me dices cuando te viene bien"], set())
 
 
-def test_rs_no_es_gs():
-    assert motos.modelo_gs("R 1250 RS") is None
-    assert motos.cotizar_moto("R 1250 RS", 2022, "Ñuñoa", "boton")["estado"] == "escalar"
-    assert motos.modelo_gs("R 1250 RT") is None
+def test_cualquier_bmw_keyless_cotiza():
+    for mod in ("R 1250 RS", "R 1250 RT", "F 850 GS", "R 1200 GS"):
+        r = motos.cotizar_moto(mod, 2022, "Ñuñoa", "boton")
+        assert r["estado"] == "cotizar" and r["precio"] == 240000
 
 
 def test_gs_variantes():
     assert motos.modelo_gs("R 1250 GS Adventure") == "R 1250 GS"
     assert motos.modelo_gs("GSA 1200") == "R 1200 GS"
     assert motos.modelo_gs("BMW 1250") == "?"
-    assert motos.cotizar_moto("1250", 2021, "Ñuñoa", "boton")["estado"] == "falta_dato"
 
 
 def test_sin_comuna_no_hay_precio():

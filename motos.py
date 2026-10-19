@@ -1,4 +1,6 @@
-"""Duplicado de llave keyless para motos BMW GS (pauta Meta desde 16-10-2026, definida por Jesús).
+"""Duplicado de llave keyless para motos BMW. Jesús 19-10-2026: cualquier moto BMW de botón (keyless) se
+trata como el mismo sistema, sea GS, RS, RT u otra; se afinará con casos reales.
+Antes: motos BMW GS (pauta Meta desde 16-10-2026, definida por Jesús).
 Solo R 1200 GS / GS Adventure refrigerada por agua (2014-2018) y R 1250 GS / GS Adventure (2019-2023),
 con arranque por botón (keyless), cliente con una llave que funcione, en la Región Metropolitana."""
 from __future__ import annotations
@@ -47,11 +49,6 @@ def cotizar_moto(modelo: str = "", anio: int | None = None, lugar: str = "", arr
         falta.append("arranque")
     if situacion not in ("duplicado", "akl"):
         falta.append("situacion")
-    if m == "?":
-        return {"estado": "falta_dato", "falta": ["modelo_gs"],
-                "instruccion": "Pregunta si la moto es GS (o GS Adventure) o de otro modelo, por ejemplo RS o RT."}
-    if modelo and not m:
-        return {"estado": "escalar", "motivo": "Otro modelo de moto BMW (no es R 1200 GS ni R 1250 GS)."}
     if arranque == "llave":
         return {"estado": "lista_espera", "etiqueta": "espera_moto_bmw",
                 "motivo": "La moto arranca girando la llave en la chapa. No se cotiza: dile que estamos esperando esas "
@@ -60,8 +57,6 @@ def cotizar_moto(modelo: str = "", anio: int | None = None, lugar: str = "", arr
         return {"estado": "lista_espera", "etiqueta": "espera_moto_bmw",
                 "motivo": "Perdió todas las llaves. Dile que por ahora no hacemos pérdida total en motos y que lo dejas "
                           "anotado para avisarle cuando lo hagamos. No des precio ni menciones el del duplicado."}
-    if m and anio and not (RANGOS[m][0] <= int(anio) <= RANGOS[m][1]):
-        return {"estado": "escalar", "motivo": f"{m} {anio}: año fuera de lo que se ofrece hoy."}
     if lugar:
         l = resolver_lugar(lugar)
         if l.tipo == "region":
@@ -80,7 +75,7 @@ def cotizar_moto(modelo: str = "", anio: int | None = None, lugar: str = "", arr
                                    "en Santiago o en regiones."}
         return {"estado": "falta_dato", "falta": sorted(set(falta)), "precio": PRECIO_RM,
                 "instruccion": "Puedes dar el precio y en la misma frase pedir lo que falta. Si después resulta "
-                               "que gira llave, que perdió todas o es otro modelo/año, escala."}
-    return {"estado": "cotizar", "precio": PRECIO_RM, "modelo": f"{m} {anio}",
+                               "que gira llave o que perdió todas, sigue lo que diga cotizar_moto."}
+    return {"estado": "cotizar", "precio": PRECIO_RM, "modelo": f"{modelo} {anio}".strip(),
             "nota_cliente": ("Duplicado de llave keyless con llave y programación incluidas, a domicilio el mismo día, "
                              "queda lista en menos de 1 hora. La llave de emergencia se copia de su llave original.")}
