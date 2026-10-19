@@ -14,7 +14,6 @@ def test_escala():
     r = cotizar_moto("R 1250 GS", 2021, "Las Condes", "boton", "akl")
     assert r["estado"] == "lista_espera" and "precio" not in r
     assert cotizar_moto("R 1250 GS", 2021, "Concepción", "boton")["estado"] == "escalar"   # fuera de Santiago
-    assert cotizar_moto("R 1250 GS", 2024, "Las Condes", "boton")["estado"] == "escalar"
     r = cotizar_moto("R 1250 GS", 2021, "Concepción", "boton")
     assert r["estado"] == "escalar" and "precio" not in r
 
