@@ -248,7 +248,7 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
                               ensure_ascii=False)
         try:
             cita = await ghl.agendar(ctx.contact_id, args["inicio"], args["direccion"],
-                                     f"Llave - {ctx.nombre}", args["resumen"])
+                                     f"{args['resumen']} - {ctx.nombre}"[:120], args["resumen"])
         except Exception as e:  # noqa: BLE001
             res.acciones.append({"agendar": args, "agendar_ok": False, "motivo": str(e)[:200]})
             return ("ERROR TÉCNICO: no se pudo crear la cita en el calendario. No confirmes la hora ni digas que "
