@@ -183,6 +183,29 @@ async def revisar_hora(inicio_iso: str) -> tuple[bool, list[str]]:
     return False, sorted(cercanos)
 
 
+async def citas_futuras(contact_id: str) -> list[dict]:
+    """Citas que el cliente tiene hoy en adelante en el calendario del bot (no canceladas)."""
+    from zoneinfo import ZoneInfo
+    d = await _req("GET", f"/contacts/{contact_id}/appointments")
+    ahora = dt.datetime.now(dt.timezone.utc)
+    out = []
+    for e in d.get("events") or []:
+        estado = (e.get("appointmentStatus") or e.get("appoinmentStatus") or "").lower()
+        if e.get("deleted") or estado in ("cancelled", "invalid", "noshow") \
+                or e.get("calendarId") != config.GHL_CALENDARIO_ID:
+            continue
+        try:
+            ini = _dt(str(e["startTime"]))
+        except (KeyError, ValueError):
+            continue
+        if ini.tzinfo is None:
+            ini = ini.replace(tzinfo=ZoneInfo(config.ZONA_HORARIA))
+        if ini > ahora:
+            out.append({"id": e.get("id"), "inicio": ini.isoformat(), "direccion": e.get("address") or "",
+                        "titulo": e.get("title") or ""})
+    return sorted(out, key=lambda c: c["inicio"])
+
+
 async def borrar_cita(event_id: str) -> None:
     await _req("DELETE", f"/calendars/events/{event_id}")
 
