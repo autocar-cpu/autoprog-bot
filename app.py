@@ -135,7 +135,7 @@ async def _confirmar_cita_manual(contact_id: str, espera: float = 8):
 
 def mensaje_confirmacion(nombre: str, inicio_iso: str, direccion: str) -> str:
     saludo = f"Hola {nombre}" if nombre and nombre.isalpha() else "Hola"
-    lugar = re.sub(r",?\s*\b\d{7}\b", "", direccion or "").replace(", Región Metropolitana", "").strip(" ,")
+    lugar = re.sub(r"\s*\b\d{7}\b", "", direccion or "").replace(", Región Metropolitana", "").strip(" ,")
     lineas = ["*Confirmación de visita*", "",
               f"{saludo}, tu visita quedó confirmada para el {cerebro.fecha_es(inicio_iso)}."]
     if lugar:
