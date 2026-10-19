@@ -81,6 +81,64 @@ async def webhook(request: Request, k: str | None = None):
     return {"ok": True}
 
 
+# ------------------------------------------------------------ cita creada a mano por Jesús
+_citas_confirmadas: set[str] = set()
+
+
+@app.post("/webhook/cita")
+async def webhook_cita(request: Request, k: str | None = None):
+    """Lo llama el flujo 'Cita bot - avisos' de GHL al crearse una cita. Si la cita NO la creó el bot
+    (Jesús la hizo a mano), el bot le confirma al cliente en español y pasa la oportunidad a Agendado."""
+    if not _clave_ok(k or request.headers.get("x-autoprog-key")):
+        raise HTTPException(401)
+    try:
+        datos = await request.json()
+    except Exception:
+        datos = {}
+    contact_id = (datos.get("contact_id") or datos.get("contactId")
+                  or (datos.get("contact") or {}).get("id"))
+    if not contact_id:
+        return {"ok": False, "motivo": "sin contacto"}
+    asyncio.create_task(_confirmar_cita_manual(contact_id))
+    return {"ok": True}
+
+
+async def _confirmar_cita_manual(contact_id: str, espera: float = 8):
+    await asyncio.sleep(espera)   # da tiempo a que el bot registre sus propias citas
+    try:
+        citas = await ghl.citas_futuras(contact_id)
+        nuevas = [c for c in citas if c["id"] not in ghl.citas_bot and c["id"] not in _citas_confirmadas]
+        if not nuevas:
+            _ev(paso="cita: nada que confirmar", contacto=contact_id)
+            return
+        c = nuevas[-1]
+        _citas_confirmadas.update(x["id"] for x in nuevas)
+        contacto = await ghl.contacto(contact_id)
+        nombre = (contacto.get("firstName") or "").strip().split(" ")[0]
+        texto = mensaje_confirmacion(nombre, c["inicio"], c["direccion"])
+        try:
+            mid = await ghl.enviar_whatsapp(contact_id, texto)
+            if mid:
+                _enviados_bot.add(mid)
+            _ev(paso="cita manual confirmada al cliente", contacto=contact_id, cita=c["id"])
+        except Exception as ex:   # p. ej. fuera de la ventana de 24 h de WhatsApp
+            await ghl.nota_interna(contact_id, "No se pudo confirmar la cita al cliente por WhatsApp; "
+                                               "escríbele tú. " + texto)
+            _ev(paso="cita manual: no se pudo enviar", contacto=contact_id, error=str(ex)[:200])
+        await ghl.mover_oportunidad(contact_id, contacto.get("firstName") or "",
+                                    await ghl.pipeline_de_oportunidad(contact_id), "Agendado")
+    except Exception as ex:
+        _ev(paso="error cita manual", contacto=contact_id, error=str(ex)[:300])
+        log.exception("error confirmando cita manual %s", contact_id)
+
+
+def mensaje_confirmacion(nombre: str, inicio_iso: str, direccion: str) -> str:
+    saludo = f"hola {nombre}, " if nombre and nombre.isalpha() else "hola, "
+    lugar = f" en {direccion.split(', 8')[0].replace(', Región Metropolitana', '')}" if direccion else ""
+    return (f"{saludo}te confirmo la visita para el {cerebro.fecha_es(inicio_iso)}{lugar}. "
+            "cualquier cosa me escribes por aca")
+
+
 def _disparar(contact_id: str, espera: float, origen: str):
     """Programa la atención de un contacto.
     - Si está esperando (juntando mensajes), reinicia la espera.
