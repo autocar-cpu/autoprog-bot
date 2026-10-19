@@ -7,8 +7,8 @@ import ghl
 def test_mensaje_confirmacion():
     t = app.mensaje_confirmacion("Enrique", "2026-10-21T10:00:00-03:00",
                                  "Av. Trinidad Ote. 833, 8300558 La Florida, Región Metropolitana")
-    assert t == ("hola Enrique, te confirmo la visita para el miércoles 21 de octubre a las 10:00 en "
-                 "Av. Trinidad Ote. 833. cualquier cosa me escribes por aca")
+    assert "Hola Enrique, tu visita quedó confirmada para el miércoles 21 de octubre a las 10:00." in t
+    assert "Dirección: Av. Trinidad Ote. 833" in t and t.endswith("Autoprog SPA")
 
 
 def test_no_confirma_citas_del_bot(monkeypatch):

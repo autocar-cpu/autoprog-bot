@@ -9,6 +9,7 @@ import asyncio
 import datetime as dt
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -133,10 +134,16 @@ async def _confirmar_cita_manual(contact_id: str, espera: float = 8):
 
 
 def mensaje_confirmacion(nombre: str, inicio_iso: str, direccion: str) -> str:
-    saludo = f"hola {nombre}, " if nombre and nombre.isalpha() else "hola, "
-    lugar = f" en {direccion.split(', 8')[0].replace(', Región Metropolitana', '')}" if direccion else ""
-    return (f"{saludo}te confirmo la visita para el {cerebro.fecha_es(inicio_iso)}{lugar}. "
-            "cualquier cosa me escribes por aca")
+    saludo = f"Hola {nombre}" if nombre and nombre.isalpha() else "Hola"
+    lugar = re.sub(r"\s*\b\d{7}\b", "", direccion or "").replace(", Región Metropolitana", "").strip(" ,")
+    lineas = ["*Confirmación de visita*", "",
+              f"{saludo}, tu visita quedó confirmada para el {cerebro.fecha_es(inicio_iso)}."]
+    if lugar:
+        lineas += ["", f"Dirección: {lugar}"]
+    lineas += ["", "Te pedimos puntualidad, ya que en ese horario se reserva un ingeniero especialista "
+                   "exclusivamente para tu atención. Si necesitas reagendar, avísanos con anticipación por "
+                   "este mismo WhatsApp.", "", "Autoprog SPA"]
+    return "\n".join(lineas)
 
 
 def _disparar(contact_id: str, espera: float, origen: str):
