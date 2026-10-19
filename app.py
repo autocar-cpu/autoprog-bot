@@ -147,6 +147,7 @@ def _historial(msgs: list[dict]) -> list[dict]:
         out.append({"id": m.get("id"), "rol": "cliente" if m.get("direction") == "inbound" else "jesus",
                     "texto": m.get("body", ""), "fecha": f, "imagenes": imgs, "audio": audio,
                     "dateAdded": m.get("dateAdded", ""),
+                    "del_bot": bool((m.get("meta") or {}).get("marketplace")),
                     "api": bool((m.get("meta") or {}).get("marketplace"))
                            or m.get("source") in ("workflow", "campaign", "bulk_actions")})
     return out
@@ -188,7 +189,10 @@ async def atender(contact_id: str):
     limite = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=config.SILENCIO_SI_HUMANO_HORAS)
     forzado = contact_id in _forzar
     _forzar.discard(contact_id)
-    for m in ([] if forzado else hist):
+    # Si el bot ya volvió a responder después de un mensaje manual de Jesús, el bot retomó el chat.
+    ult_bot = max((i for i, m in enumerate(hist) if m["rol"] == "jesus"
+                   and (m.get("del_bot") or m["id"] in _enviados_bot)), default=-1)
+    for m in ([] if forzado else hist[ult_bot + 1:]):
         if m["rol"] == "jesus" and m["id"] not in _enviados_bot and m["dateAdded"] \
                 and not m.get("api") and not _es_bot_viejo(m.get("texto", "")):
             if dt.datetime.fromisoformat(m["dateAdded"].replace("Z", "+00:00")) > limite:
