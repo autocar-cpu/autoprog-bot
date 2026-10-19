@@ -166,7 +166,7 @@ async def agendar(contact_id: str, inicio_iso: str, direccion: str, titulo: str,
         "calendarId": config.GHL_CALENDARIO_ID, "locationId": config.GHL_LOCATION_ID,
         "contactId": contact_id, "startTime": inicio.isoformat(), "endTime": fin.isoformat(),
         "title": titulo, "address": direccion, "appointmentStatus": "confirmed",
-        "assignedUserId": config.GHL_USUARIO_JESUS, "notes": notas, "toNotify": True})
+        "assignedUserId": config.GHL_USUARIO_JESUS, "notes": notas, "toNotify": False})
 
 
 def _dt(x: str) -> dt.datetime:
