@@ -50,7 +50,9 @@ HERRAMIENTAS = [
      "input_schema": {"type": "object", "properties": {
          "inicio": {"type": "string", "description": "Fecha y hora de inicio ISO con zona, tal como vino de horarios_disponibles"},
          "direccion": {"type": "string"},
-         "resumen": {"type": "string", "description": "Muy corto: marca modelo año, comuna, servicio, precio"}},
+         "resumen": {"type": "string", "description": "Muy corto: marca modelo año, comuna, servicio, precio"},
+         "reemplaza_cita": {"type": "boolean", "description": "true si el cliente quiere CAMBIAR el día u hora de la cita que ya tiene (la anterior se anula)"},
+         "otra_visita": {"type": "boolean", "description": "true si es una visita ADICIONAL a la que ya tiene (por ejemplo otro auto)"}},
          "required": ["inicio", "direccion", "resumen"]}},
     {"name": "guardar_datos",
      "description": "Guarda en el CRM los datos del vehículo y del cliente apenas se conocen.",
@@ -112,9 +114,23 @@ class Contexto:
     historial: list[dict]          # [{"rol": "cliente"|"jesus", "texto", "fecha", "imagenes": [urls]}]
     simulacion: bool = True        # True = no toca GHL (pruebas)
     cotizaciones_previas: list[dict] = field(default_factory=list)  # [{"clave": [...], "precio": int}] de notas internas
+    citas: list[dict] | None = None   # citas futuras reales del calendario (None = no se consultó)
 
 
 # ---------------------------------------------------------------- reglas duras de precio (Jesús, 15/10/2026)
+DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
+         "noviembre", "diciembre"]
+
+
+def fecha_es(iso: str) -> str:
+    """'2026-10-20T15:00:00-03:00' -> 'martes 20 de octubre a las 15:00' (hora de Chile)."""
+    d = dt.datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    if d.tzinfo:
+        d = d.astimezone(ZoneInfo(config.ZONA_HORARIA))
+    return f"{DIAS[d.weekday()]} {d.day} de {MESES[d.month - 1]} a las {d:%H:%M}"
+
+
 MAX_AUTOS_POR_CHAT = 2          # más autos distintos = probable competidor o revendedor: se escala
 NOTA_COTIZACION = "[cotizacion] "
 
@@ -172,6 +188,12 @@ async def _transcripcion(ctx: Contexto) -> list[dict]:
         if m.get("audio"):
             txt += " [envió una nota de voz]"
         lineas.append(f"[{m.get('fecha', '')}] {quien}: {txt}")
+    if ctx.citas:
+        lineas += ["", "AGENDA REAL: este cliente tiene estas citas futuras en el calendario: " + "; ".join(
+            f"{fecha_es(c['inicio'])} en {c['direccion']} ({c['titulo']})" for c in ctx.citas) + "."]
+    elif ctx.citas is not None:
+        lineas += ["", "AGENDA REAL: este cliente NO tiene citas futuras en el calendario (si antes se le confirmó "
+                       "una, ya no existe). No le digas que tiene una cita agendada."]
     lineas += ["", "Responde a lo último que escribió el cliente."]
     contenido = [{"type": "text", "text": "\n".join(lineas)}]
     for url in imagenes[-3:]:
@@ -239,6 +261,21 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
         if ctx.simulacion:
             res.acciones.append({"agendar": args, "agendar_ok": True})
             return "Cita creada (simulación). Ahora sí confirma día, hora y dirección en un mensaje corto."
+        actuales = ctx.citas or []
+        reemplaza, otra = bool(args.get("reemplaza_cita")), bool(args.get("otra_visita"))
+        if actuales and not (reemplaza or otra):
+            res.acciones.append({"agendar": args, "agendar_ok": False, "motivo": "ya tiene cita"})
+            return json.dumps({"cita_creada": False, "motivo": "El cliente ya tiene cita: " + "; ".join(
+                fecha_es(c["inicio"]) + " en " + c["direccion"] for c in actuales) + ".",
+                "instruccion": "No crees nada todavía. Pregúntale en una frase si quiere cambiar el día u hora de "
+                               "esa cita o si es otra visita aparte (otro auto). Para cambiarla llama agendar con "
+                               "reemplaza_cita=true; para una visita aparte, con otra_visita=true."},
+                ensure_ascii=False)
+        pedido = ghl._dt(args["inicio"])
+        if reemplaza and any(ghl._dt(c["inicio"]) == pedido for c in actuales):
+            res.acciones.append({"agendar": args, "agendar_ok": True, "motivo": "misma hora que la cita actual"})
+            return ("Esa ya es su cita actual en el calendario (" + fecha_es(args["inicio"]) + "). "
+                    "Confírmasela en un mensaje corto.")
         libre, cercanos = await ghl.revisar_hora(args["inicio"])
         if not libre:
             res.acciones.append({"agendar": args, "agendar_ok": False, "motivo": "hora no libre"})
@@ -248,12 +285,21 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
                               ensure_ascii=False)
         try:
             cita = await ghl.agendar(ctx.contact_id, args["inicio"], args["direccion"],
-                                     f"{args['resumen']} - {ctx.nombre}"[:120], args["resumen"])
+                                     f"{args['resumen']} - {ctx.nombre} - {fecha_es(args['inicio'])}"[:150],
+                                     args["resumen"])
         except Exception as e:  # noqa: BLE001
             res.acciones.append({"agendar": args, "agendar_ok": False, "motivo": str(e)[:200]})
             return ("ERROR TÉCNICO: no se pudo crear la cita en el calendario. No confirmes la hora ni digas que "
                     "lo dejas en la agenda. Usa escalar_a_jesus con motivo 'falla técnica de agenda'.")
         res.acciones.append({"agendar": args, "agendar_ok": True, "cita": (cita or {}).get("id")})
+        if reemplaza:   # la cita anterior se anula solo después de crear la nueva
+            for c in actuales:
+                try:
+                    await ghl.borrar_cita(c["id"])
+                except Exception:  # noqa: BLE001
+                    log.exception("no se pudo borrar la cita anterior %s", c["id"])
+                    await ghl.nota_interna(ctx.contact_id, "Revisar agenda: no se pudo anular la cita anterior del "
+                                           + fecha_es(c["inicio"]))
         try:
             await ghl.mover_oportunidad(ctx.contact_id, ctx.nombre, "BMW MINI", "Agendado")
         except Exception:  # noqa: BLE001
@@ -357,7 +403,8 @@ async def pensar(ctx: Contexto, modelo_forzado: str | None = None) -> Resultado:
         if final:
             msgs = [m.strip() for m in final.input.get("mensajes", []) if m and m.strip()]
             problemas = revisar(msgs, montos, permitir_presentacion=moto)
-            if CONFIRMA_CITA.search(" ".join(msgs)) and not any(a.get("agendar_ok") for a in res.acciones):
+            if CONFIRMA_CITA.search(" ".join(msgs)) and not any(a.get("agendar_ok") for a in res.acciones) \
+                    and not ctx.citas:
                 problemas.append("No confirmes una visita ni una hora si agendar no devolvió 'Cita creada'. "
                                  "Usa horarios_disponibles, ofrece horas libres y llama agendar.")
             if final.name == "enviar_respuesta" and any(PROMETE_DESPUES.search(x) for x in msgs) \

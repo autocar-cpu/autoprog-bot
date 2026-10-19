@@ -200,8 +200,13 @@ async def atender(contact_id: str):
                 return
 
     nombre = contacto.get("firstName") or contacto.get("contactName") or ""
+    try:
+        citas = await ghl.citas_futuras(contact_id)
+    except Exception:  # noqa: BLE001  sin agenda no se bota la conversación
+        log.exception("no se pudieron leer las citas de %s", contact_id)
+        citas = None
     for _ in range(3):
-        ctx = cerebro.Contexto(contact_id, nombre, hist, simulacion=False, cotizaciones_previas=previas)
+        ctx = cerebro.Contexto(contact_id, nombre, hist, simulacion=False, cotizaciones_previas=previas, citas=citas)
         res = await cerebro.pensar(ctx)
         # ¿El cliente escribió algo más mientras se pensaba? Entonces se vuelve a pensar con todo.
         nuevo = _historial(await ghl.mensajes(conv))
