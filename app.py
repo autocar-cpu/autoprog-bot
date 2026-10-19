@@ -144,13 +144,16 @@ def _historial(msgs: list[dict]) -> list[dict]:
         out.append({"id": m.get("id"), "rol": "cliente" if m.get("direction") == "inbound" else "jesus",
                     "texto": m.get("body", ""), "fecha": f, "imagenes": imgs, "audio": audio,
                     "dateAdded": m.get("dateAdded", ""),
-                    "api": bool((m.get("meta") or {}).get("marketplace"))})
+                    "api": bool((m.get("meta") or {}).get("marketplace"))
+                           or m.get("source") in ("workflow", "campaign", "bulk_actions")})
     return out
 
 
 def _es_bot_viejo(texto: str) -> bool:
     """Mensajes del bot anterior de GHL (firmaba así); no cuentan como atención manual de Jesús."""
     t = texto or ""
+    if t.startswith("Confirmación de cita") or t.startswith("Recordatorio de cita"):
+        return True  # avisos automáticos del calendario de GHL
     return "AUTOPROG SPA" in t and ("Ing. Jesús Perdomo" in t or "Jesús David" in t)
 
 
