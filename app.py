@@ -427,7 +427,7 @@ def lote_resultado(k: str, solo_fallas: bool = False):
 
 
 @app.get("/diag_agenda")
-async def diag_agenda(k: str, crear: int = 0):
+async def diag_agenda(k: str, crear: int = 0, contacto: str = ""):
     """Revisa que el token del bot pueda leer el calendario y (crear=1) crear y borrar una cita de prueba."""
     if not _clave_ok(k):
         raise HTTPException(401)
@@ -439,9 +439,10 @@ async def diag_agenda(k: str, crear: int = 0):
     except Exception as e:  # noqa: BLE001
         out["leer_horas_libres"] = f"FALLA: {str(e)[:200]}"
         return out
-    if crear and out["primeras_horas"] and config.CONTACTO_PRUEBA:
+    contacto = contacto or config.CONTACTO_PRUEBA
+    if crear and out["primeras_horas"] and contacto:
         try:
-            c = await ghl.agendar(_contacto_prueba(), out["primeras_horas"][-1], "PRUEBA - no ir",
+            c = await ghl.agendar(contacto, out["primeras_horas"][-1], "PRUEBA - no ir",
                                   "PRUEBA bot (se borra sola)", "Prueba automática del bot")
             cid = c.get("id") or (c.get("appointment") or {}).get("id")
             out["crear_cita"] = f"OK ({cid})"
