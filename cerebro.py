@@ -376,6 +376,8 @@ async def pensar(ctx: Contexto, modelo_forzado: str | None = None) -> Resultado:
     modelo = modelo_forzado or config.MODELO
     reintentos_revisor = 0
     moto = motos.es_moto([m.get("texto", "") for m in ctx.historial if m["rol"] == "cliente"])
+    volvo = any(re.search(r"\bvolvo\b", m.get("texto", "") or "", re.I)
+                for m in ctx.historial if m["rol"] == "cliente")   # sin láminas: son de BMW
 
     for _ in range(10):
         r = await _claude().messages.create(model=modelo, max_tokens=1500, system=sistema,
@@ -428,11 +430,11 @@ async def pensar(ctx: Contexto, modelo_forzado: str | None = None) -> Resultado:
                 res.escalado = {"motivo": final.input.get("motivo", ""), "resumen": final.input.get("resumen", "")}
             else:
                 res.imagen = final.input.get("imagen") or ""
-                if moto:   # las láminas son de llaves de auto: a un cliente de moto no se le mandan
+                if moto or volvo:   # las láminas son de llaves BMW de auto: a moto o Volvo no se les mandan
                     res.imagen = ""
                 elif not res.imagen and _pide_fotos(ctx):   # el cliente pidió fotos: se mandan sí o sí
                     res.imagen = res.imagen_sugerida or "catalogo_general"
-                if not moto and not res.imagen and res.mensajes and _primer_contacto(ctx):
+                if not moto and not volvo and not res.imagen and res.mensajes and _primer_contacto(ctx):
                     # Protocolo de primer contacto: la primera respuesta siempre lleva la lámina de llaves
                     res.imagen = res.imagen_sugerida or "catalogo_general"
             return res
