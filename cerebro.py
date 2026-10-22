@@ -20,6 +20,10 @@ import regiones
 from revisor import revisar
 
 log = logging.getLogger("cerebro")
+
+_SIN_LAMINA = (r"\b(volvo|jaguar|land\s?rover|range\s?rover|evoque|velar|discovery|defender|chevrolet|chevy|silverado|"
+               r"tahoe|suburban|camaro|corvette|ford|jeep|dodge|ram|chrysler|fiat|alfa\s?romeo|mercedes|audi|"
+               r"volkswagen|vw|porsche|seat|skoda|cupra)\b")
 _cliente = None
 
 
@@ -413,8 +417,8 @@ async def pensar(ctx: Contexto, modelo_forzado: str | None = None) -> Resultado:
     modelo = modelo_forzado or config.MODELO
     reintentos_revisor = 0
     moto = motos.es_moto([m.get("texto", "") for m in ctx.historial if m["rol"] == "cliente"])
-    volvo = any(re.search(r"\bvolvo\b", m.get("texto", "") or "", re.I)
-                for m in ctx.historial if m["rol"] == "cliente")   # sin láminas: son de BMW
+    volvo = any(re.search(_SIN_LAMINA, m.get("texto", "") or "", re.I)
+                for m in ctx.historial if m["rol"] == "cliente")   # otras marcas: sin láminas, son de BMW
 
     for _ in range(10):
         r = await _claude().messages.create(model=modelo, max_tokens=1500, system=sistema,
