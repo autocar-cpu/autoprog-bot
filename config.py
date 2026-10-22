@@ -34,22 +34,26 @@ PIPELINES = {
         "Calificando": "fadb6cf7-3229-4a03-bbf6-8f3fe6c5337e",
         "Escalado a Jesús": "33517732-5369-44e5-8b42-244fdc006799",
         "Cotizado": "ed4bd73c-27b9-488e-a3e3-2501c96c6e22",
-        "Agendado": "27163b5a-7f06-427b-b364-f9fd5e5b0bb9"}},
+        "Agendado": "27163b5a-7f06-427b-b364-f9fd5e5b0bb9",
+        "Reagendar": "7df5c89e-8bb0-4707-a834-15af5b983098"}},
     "FCA": {"id": "l8cwnRR008fjCeZNotlt", "etapas": {
         "Calificando": "ac1c9106-a278-4b90-bf47-baff1c93bc50",
         "Escalado a Jesús": "ac1c9106-a278-4b90-bf47-baff1c93bc50",
         "Cotizado": "9c6223cb-bca1-48c7-8b28-cd7665f93117",
-        "Agendado": "addc55df-0493-4b8c-803c-83e667cf4d57"}},
+        "Agendado": "addc55df-0493-4b8c-803c-83e667cf4d57",
+        "Reagendar": "349abae8-08eb-41c3-ad01-b170ca0a5923"}},
     "VAG": {"id": "1Gp2OdsEh1zMeKysajSv", "etapas": {
         "Calificando": "8b4cf1c0-f8a5-46cc-8ef2-712cbb4f927c",
         "Escalado a Jesús": "caf2f131-a902-452a-9ecb-76ed94c48b62",
         "Cotizado": "1cbfb578-9bfb-4089-ab1f-d82c94be900d",
-        "Agendado": "ce272385-c53e-4465-adf2-8440e54ac8d7"}},
+        "Agendado": "ce272385-c53e-4465-adf2-8440e54ac8d7",
+        "Reagendar": "aff3011d-2837-4486-b18c-f91f33240902"}},
     "MULTIMARCA": {"id": "3NjiHVj8ujaG2GzoL1QU", "etapas": {
         "Calificando": "7e648622-1348-4c85-8441-aba9df8a5594",
         "Escalado a Jesús": "7e648622-1348-4c85-8441-aba9df8a5594",
         "Cotizado": "52264950-21e4-416e-803d-4b57f5964d93",
-        "Agendado": "d45d4672-95aa-4477-b1d2-f283b871625b"}},
+        "Agendado": "d45d4672-95aa-4477-b1d2-f283b871625b",
+        "Reagendar": "a49a65c0-cad0-4250-90e2-b58f726d63bb"}},
 }
 
 CAMPOS = {  # ids de campos personalizados del contacto en GHL

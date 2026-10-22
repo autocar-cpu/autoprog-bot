@@ -50,7 +50,7 @@ HERRAMIENTAS = [
          "desde": {"type": "string", "description": "Fecha YYYY-MM-DD desde la que buscar (opcional)"}}}},
     {"name": "posponer_cita",
      "description": "El cliente no puede ir a su cita y todavía no sabe el nuevo día: anula su cita (libera la hora), "
-                    "deja la oportunidad en Cotizado y una tarea a Jesús para retomarlo. Úsala solo si el cliente "
+                    "deja la oportunidad en Reagendar y una tarea a Jesús para retomarlo. Úsala solo si el cliente "
                     "no elige una nueva fecha.",
      "input_schema": {"type": "object", "properties": {
          "motivo": {"type": "string", "description": "Muy corto, en palabras simples (ej. 'tema de plata, la próxima semana')"},
@@ -285,7 +285,7 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
         ctx.citas = []
         try:
             await ghl.mover_oportunidad(ctx.contact_id, ctx.nombre, await ghl.pipeline_de_oportunidad(ctx.contact_id),
-                                        "Cotizado")
+                                        "Reagendar")
             await ghl.crear_tarea(ctx.contact_id, f"Retomar: pospuso la visita ({args['motivo']})",
                                   "Cita anulada: " + (", ".join(anuladas) or "ninguna") + ". Escribirle para fijar día.",
                                   horas=24 * dias)
