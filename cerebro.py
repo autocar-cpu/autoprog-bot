@@ -43,8 +43,19 @@ HERRAMIENTAS = [
          "cliente_es_negocio": {"type": "boolean"}},
          "required": ["modelo", "anio", "lugar", "situacion"]}},
     {"name": "horarios_disponibles",
-     "description": "Horarios libres reales de la agenda de Jesús para los próximos días (bloques de 3 horas).",
-     "input_schema": {"type": "object", "properties": {}}},
+     "description": "Horarios libres reales de la agenda (bloques de 3 horas). Sin 'desde' devuelve los próximos 4 días; "
+                    "con 'desde' (YYYY-MM-DD) devuelve 5 días desde esa fecha, por ejemplo la próxima semana. "
+                    "La agenda está abierta para cualquier semana: nunca digas que una semana no está abierta.",
+     "input_schema": {"type": "object", "properties": {
+         "desde": {"type": "string", "description": "Fecha YYYY-MM-DD desde la que buscar (opcional)"}}}},
+    {"name": "posponer_cita",
+     "description": "El cliente no puede ir a su cita y todavía no sabe el nuevo día: anula su cita (libera la hora), "
+                    "deja la oportunidad en Cotizado y una tarea a Jesús para retomarlo. Úsala solo si el cliente "
+                    "no elige una nueva fecha.",
+     "input_schema": {"type": "object", "properties": {
+         "motivo": {"type": "string", "description": "Muy corto, en palabras simples (ej. 'tema de plata, la próxima semana')"},
+         "retomar_en_dias": {"type": "integer", "description": "En cuántos días retomar el contacto (por defecto 7)"}},
+         "required": ["motivo"]}},
     {"name": "agendar",
      "description": "Crea la cita en la agenda. Solo cuando el cliente confirmó día, hora y dirección exacta.",
      "input_schema": {"type": "object", "properties": {
@@ -255,7 +266,33 @@ async def _ejecutar(nombre: str, args: dict, ctx: Contexto, res: Resultado, mont
                 dia = base + dt.timedelta(days=d)
                 slots[dia.date().isoformat()] = [dia.replace(hour=h).isoformat() for h in (10, 13, 16)]
             return json.dumps(slots)
+        if args.get("desde"):
+            return json.dumps(await ghl.horarios_libres(dias=5, desde=args["desde"]), ensure_ascii=False)
         return json.dumps(await ghl.horarios_libres(), ensure_ascii=False)
+
+    if nombre == "posponer_cita":
+        dias = int(args.get("retomar_en_dias") or 7)
+        res.acciones.append({"posponer_cita": args})
+        if ctx.simulacion:
+            return "Cita anulada (simulación). Responde corto, sin presión."
+        anuladas = []
+        for c in ctx.citas or []:
+            try:
+                await ghl.borrar_cita(c["id"])
+                anuladas.append(fecha_es(c["inicio"]))
+            except Exception:  # noqa: BLE001
+                log.exception("no se pudo anular la cita %s", c["id"])
+        ctx.citas = []
+        try:
+            await ghl.mover_oportunidad(ctx.contact_id, ctx.nombre, await ghl.pipeline_de_oportunidad(ctx.contact_id),
+                                        "Cotizado")
+            await ghl.crear_tarea(ctx.contact_id, f"Retomar: pospuso la visita ({args['motivo']})",
+                                  "Cita anulada: " + (", ".join(anuladas) or "ninguna") + ". Escribirle para fijar día.",
+                                  horas=24 * dias)
+        except Exception:  # noqa: BLE001
+            log.exception("posponer_cita: CRM")
+        return ("Cita anulada y tarea creada para retomarlo. Responde corto y empático, sin presión: dile que no hay "
+                "problema, que le liberaste la hora y que cuando tenga el día te escriba por acá.")
 
     if nombre == "agendar":
         if ctx.simulacion:
