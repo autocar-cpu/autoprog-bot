@@ -159,11 +159,20 @@ async def mover_a_viajes(contact_id: str, nombre_contacto: str, etapa: str, valo
 
 
 # ------------------------------------------------------------ agenda
-async def horarios_libres(dias: int = 4) -> dict[str, list[str]]:
+async def horarios_libres(dias: int = 4, desde: str = "") -> dict[str, list[str]]:
+    """Horas libres. desde='YYYY-MM-DD' para mirar más adelante (ej. la próxima semana)."""
+    from zoneinfo import ZoneInfo
     ahora = dt.datetime.now(dt.timezone.utc)
+    inicio = ahora
+    if desde:
+        try:
+            inicio = max(ahora, dt.datetime.fromisoformat(desde[:10]).replace(tzinfo=ZoneInfo(config.ZONA_HORARIA)))
+        except ValueError:
+            pass
+    inicio = min(inicio, ahora + dt.timedelta(days=60))
     d = await _req("GET", f"/calendars/{config.GHL_CALENDARIO_ID}/free-slots", params={
-        "startDate": int(ahora.timestamp() * 1000),
-        "endDate": int((ahora + dt.timedelta(days=dias)).timestamp() * 1000),
+        "startDate": int(inicio.timestamp() * 1000),
+        "endDate": int((inicio + dt.timedelta(days=dias)).timestamp() * 1000),
         "timezone": config.ZONA_HORARIA})
     return {k: v.get("slots", []) for k, v in d.items() if isinstance(v, dict) and "slots" in v}
 
